@@ -24,7 +24,7 @@ impl ContentChunk {
         section_path: Option<String>,
     ) -> Self {
         Self {
-            id: Uuid::new_v4(),
+            id: Uuid::nil(), // Will be set by database
             file_id,
             chunk_text,
             chunk_index,
@@ -32,6 +32,28 @@ impl ContentChunk {
             page_number,
             section_path,
             created_at: Utc::now(),
+        }
+    }
+
+    pub fn with_id(
+        id: Uuid,
+        file_id: Uuid,
+        chunk_text: String,
+        chunk_index: i32,
+        token_count: Option<i32>,
+        page_number: Option<i32>,
+        section_path: Option<String>,
+        created_at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            id,
+            file_id,
+            chunk_text,
+            chunk_index,
+            token_count,
+            page_number,
+            section_path,
+            created_at,
         }
     }
 

@@ -63,7 +63,7 @@ impl ProcessingStatus {
             "pending" => Ok(ProcessingStatus::Pending),
             "processing" => Ok(ProcessingStatus::Processing),
             "completed" => Ok(ProcessingStatus::Completed),
-            "failed" => Ok(ProcessingStatus::Failed("Unknown error".to_string())), // Error details will be in error_message field
+            "failed" => Ok(ProcessingStatus::Failed("Processing failed".to_string())), // Default error message
             s if s.starts_with("failed:") => {
                 // Handle legacy format for backward compatibility
                 let error = s.strip_prefix("failed:").unwrap_or("").trim();

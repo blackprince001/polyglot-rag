@@ -36,7 +36,7 @@ pub struct JobResult {
 impl ProcessingJob {
     pub fn new_file_processing(file_id: Uuid) -> Self {
         Self {
-            id: Uuid::new_v4(),
+            id: Uuid::nil(),
             file_id,
             job_type: JobType::FileProcessing,
             status: ProcessingStatus::Pending,
@@ -51,7 +51,7 @@ impl ProcessingJob {
 
     pub fn new_url_extraction(file_id: Uuid, url: String) -> Self {
         Self {
-            id: Uuid::new_v4(),
+            id: Uuid::nil(),
             file_id,
             job_type: JobType::UrlExtraction { url },
             status: ProcessingStatus::Pending,
@@ -66,7 +66,7 @@ impl ProcessingJob {
 
     pub fn new_youtube_extraction(file_id: Uuid, url: String) -> Self {
         Self {
-            id: Uuid::new_v4(),
+            id: Uuid::nil(),
             file_id,
             job_type: JobType::YoutubeExtraction { url },
             status: ProcessingStatus::Pending,

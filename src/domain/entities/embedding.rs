@@ -23,11 +23,31 @@ impl Embedding {
         embedding: Vector,
     ) -> Self {
         Self {
-            id: Uuid::new_v4(),
+            id: Uuid::nil(), // Will be set by database
             content_chunk_id,
             model_name,
             model_version,
             generated_at: Utc::now(),
+            generation_parameters,
+            embedding,
+        }
+    }
+
+    pub fn with_id(
+        id: Uuid,
+        content_chunk_id: Uuid,
+        model_name: String,
+        model_version: Option<String>,
+        generated_at: DateTime<Utc>,
+        generation_parameters: Option<serde_json::Value>,
+        embedding: Vector,
+    ) -> Self {
+        Self {
+            id,
+            content_chunk_id,
+            model_name,
+            model_version,
+            generated_at,
             generation_parameters,
             embedding,
         }
@@ -66,7 +86,7 @@ impl Embedding {
     }
 
     pub fn is_compatible_with(&self, other: &Embedding) -> bool {
-        self.model_name == other.model_name 
+        self.model_name == other.model_name
             && self.model_version == other.model_version
             && self.dimension() == other.dimension()
     }
@@ -91,7 +111,8 @@ impl Embedding {
     }
 
     pub fn magnitude(&self) -> f32 {
-        self.embedding.as_slice()
+        self.embedding
+            .as_slice()
             .iter()
             .map(|x| x * x)
             .sum::<f32>()
@@ -119,7 +140,7 @@ mod tests {
     fn test_embedding_creation() {
         let chunk_id = Uuid::new_v4();
         let vector = create_test_vector(vec![0.1, 0.2, 0.3]);
-        
+
         let embedding = Embedding::new(
             chunk_id,
             "test-model".to_string(),
@@ -138,7 +159,7 @@ mod tests {
     fn test_compatibility() {
         let chunk_id1 = Uuid::new_v4();
         let chunk_id2 = Uuid::new_v4();
-        
+
         let embedding1 = Embedding::new(
             chunk_id1,
             "test-model".to_string(),
@@ -171,7 +192,7 @@ mod tests {
     fn test_cosine_similarity() {
         let chunk_id1 = Uuid::new_v4();
         let chunk_id2 = Uuid::new_v4();
-        
+
         let embedding1 = Embedding::new(
             chunk_id1,
             "test-model".to_string(),
