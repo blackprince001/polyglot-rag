@@ -38,10 +38,14 @@ services:
       - DATABASE_URL=postgres://postgres:postgres@postgres/postgres
       - EMBEDDINGS_SERVICE_URL=http://text-embeddings-inference
       - UPLOAD_DIR=./uploads
-      - PORT=3000
+      - PORT=9000
+      - CHUNK_SIZE=200
+      - CHUNK_OVERLAP=50
+      - MAX_CHUNKS_PER_DOCUMENT=
+      - MIN_CHUNK_SIZE=100=
       - RUST_BACKTRACE=1
     ports:
-      - "3000:3000"
+      - "9000:9000"
     volumes:
       - uploads:/app/uploads
     depends_on:
