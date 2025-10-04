@@ -112,6 +112,7 @@ pub struct FileDetailResponseDto {
     pub file_name: String,
     pub file_size: i64,
     pub file_hash: String,
+    pub file_path: String,
     pub content_type: Option<String>,
     pub processing_status: String,
     pub created_at: String,
@@ -144,6 +145,7 @@ impl From<crate::application::use_cases::get_file::GetFileResponse> for FileDeta
             file_id: response.file.id(),
             file_name: response.file.file_name().to_string(),
             file_size: response.file.file_size().unwrap_or(0),
+            file_path: response.file.file_path().to_string(),
             file_hash: response
                 .file
                 .file_hash()

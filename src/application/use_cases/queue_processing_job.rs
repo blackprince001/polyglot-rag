@@ -105,14 +105,28 @@ impl QueueProcessingJobUseCase {
             }
         };
 
-        // Save job to repository
-        self.job_repository.save(&job).await?;
+        // Save job to repository and get the database-generated ID
+        let job_id = self.job_repository.save(&job).await?;
+
+        // Create job with the database ID for queuing
+        let job_with_id = ProcessingJob::from_database(
+            job_id,
+            job.file_id(),
+            job.job_type().clone(),
+            job.status().clone(),
+            job.progress(),
+            job.created_at(),
+            job.started_at(),
+            job.completed_at(),
+            job.error_message().map(|s| s.to_string()),
+            job.result_summary().cloned(),
+        );
 
         // Enqueue job for processing
-        self.job_queue.enqueue(job.clone()).await?;
+        self.job_queue.enqueue(job_with_id).await?;
 
         Ok(QueueJobResponse {
-            job_id: job.id(),
+            job_id,
             file_id: request.file_id,
             job_type: request.job_type,
             status: "queued".to_string(),
