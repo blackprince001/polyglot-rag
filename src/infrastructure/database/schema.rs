@@ -45,6 +45,7 @@ diesel::table! {
         created_at -> Nullable<Timestamptz>,
         updated_at -> Nullable<Timestamptz>,
         metadata -> Nullable<Jsonb>,
+        processing_status -> Varchar,
     }
 }
 

@@ -30,7 +30,7 @@ CREATE TABLE content_chunks (
 CREATE TABLE embeddings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     content_chunk_id UUID REFERENCES content_chunks(id) ON DELETE CASCADE,
-    embedding VECTOR(1536),
+    embedding VECTOR(1024),
     model_name TEXT NOT NULL,
     model_version TEXT,
     generated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
