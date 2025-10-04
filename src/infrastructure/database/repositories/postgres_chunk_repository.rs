@@ -20,33 +20,33 @@ impl PostgresChunkRepository {
 
 #[async_trait]
 impl ChunkRepository for PostgresChunkRepository {
-    // async fn save(&self, chunk: &ContentChunk) -> Result<(), ChunkRepositoryError> {
-    //     let mut conn = get_connection_from_pool(&self.pool)
-    //         .map_err(|e| ChunkRepositoryError::DatabaseError(e.to_string()))?;
+    async fn save(&self, chunk: &ContentChunk) -> Result<Uuid, ChunkRepositoryError> {
+        let mut conn = get_connection_from_pool(&self.pool)
+            .map_err(|e| ChunkRepositoryError::DatabaseError(e.to_string()))?;
 
-    //     let new_chunk = NewContentChunkModel::from(chunk);
+        let new_chunk = NewContentChunkModel::from(chunk);
 
-    //     diesel::insert_into(content_chunks)
-    //         .values(&new_chunk)
-    //         .execute(&mut conn)
-    //         .map_err(|e| ChunkRepositoryError::DatabaseError(e.to_string()))?;
+        let inserted_chunk: ContentChunkModel = diesel::insert_into(content_chunks)
+            .values(&new_chunk)
+            .get_result(&mut conn)
+            .map_err(|e| ChunkRepositoryError::DatabaseError(e.to_string()))?;
 
-    //     Ok(())
-    // }
+        Ok(inserted_chunk.id)
+    }
 
-    async fn save_batch(&self, chunks: &[ContentChunk]) -> Result<(), ChunkRepositoryError> {
+    async fn save_batch(&self, chunks: &[ContentChunk]) -> Result<Vec<Uuid>, ChunkRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| ChunkRepositoryError::DatabaseError(e.to_string()))?;
 
         let new_chunks: Vec<NewContentChunkModel> =
             chunks.iter().map(NewContentChunkModel::from).collect();
 
-        diesel::insert_into(content_chunks)
+        let inserted_chunks: Vec<ContentChunkModel> = diesel::insert_into(content_chunks)
             .values(&new_chunks)
-            .execute(&mut conn)
+            .get_results(&mut conn)
             .map_err(|e| ChunkRepositoryError::DatabaseError(e.to_string()))?;
 
-        Ok(())
+        Ok(inserted_chunks.into_iter().map(|chunk| chunk.id).collect())
     }
 
     async fn find_by_id(

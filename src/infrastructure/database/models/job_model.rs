@@ -30,7 +30,7 @@ pub struct JobModel {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = processing_jobs)]
 pub struct NewJobModel {
-    pub id: Uuid,
+    pub id: Option<Uuid>,
     pub file_id: Uuid,
     pub job_type: String,
     pub job_data: Option<serde_json::Value>,
@@ -75,7 +75,7 @@ impl From<ProcessingJob> for NewJobModel {
         };
 
         Self {
-            id: job.id(),
+            id: None, // Let database generate the ID
             file_id: job.file_id(),
             job_type: job_type_str,
             job_data,

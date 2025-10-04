@@ -34,8 +34,8 @@ pub struct SimilaritySearchResult {
 
 #[async_trait]
 pub trait EmbeddingRepository: Send + Sync {
-    async fn save(&self, embedding: &Embedding) -> Result<(), EmbeddingRepositoryError>;
-    async fn save_batch(&self, embeddings: &[Embedding]) -> Result<(), EmbeddingRepositoryError>;
+    async fn save(&self, embedding: &Embedding) -> Result<Uuid, EmbeddingRepositoryError>;
+    async fn save_batch(&self, embeddings: &[Embedding]) -> Result<Vec<Uuid>, EmbeddingRepositoryError>;
     async fn find_by_id(&self, id: Uuid) -> Result<Option<Embedding>, EmbeddingRepositoryError>;
     async fn find_by_chunk_id(&self, chunk_id: Uuid) -> Result<Option<Embedding>, EmbeddingRepositoryError>;
     async fn find_by_file_id(&self, file_id: Uuid) -> Result<Vec<Embedding>, EmbeddingRepositoryError>;

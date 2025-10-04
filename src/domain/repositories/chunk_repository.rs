@@ -24,8 +24,8 @@ impl std::error::Error for ChunkRepositoryError {}
 
 #[async_trait]
 pub trait ChunkRepository: Send + Sync {
-    // async fn save(&self, chunk: &ContentChunk) -> Result<(), ChunkRepositoryError>;
-    async fn save_batch(&self, chunks: &[ContentChunk]) -> Result<(), ChunkRepositoryError>;
+    async fn save(&self, chunk: &ContentChunk) -> Result<Uuid, ChunkRepositoryError>;
+    async fn save_batch(&self, chunks: &[ContentChunk]) -> Result<Vec<Uuid>, ChunkRepositoryError>;
     async fn find_by_id(&self, id: Uuid) -> Result<Option<ContentChunk>, ChunkRepositoryError>;
     // async fn find_by_file_id(&self, file_id: Uuid) -> Result<Vec<ContentChunk>, ChunkRepositoryError>;
     async fn find_by_file_id_paginated(

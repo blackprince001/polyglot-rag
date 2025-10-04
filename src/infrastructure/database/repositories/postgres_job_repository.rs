@@ -26,20 +26,20 @@ impl PostgresJobRepository {
 
 #[async_trait]
 impl JobRepository for PostgresJobRepository {
-    async fn save(&self, job: &ProcessingJob) -> Result<(), JobRepositoryError> {
+    async fn save(&self, job: &ProcessingJob) -> Result<Uuid, JobRepositoryError> {
         let new_job = NewJobModel::from(job.clone());
         let mut conn = self.get_connection()?;
 
-        tokio::task::spawn_blocking(move || {
+        let inserted_job = tokio::task::spawn_blocking(move || {
             diesel::insert_into(processing_jobs::table)
                 .values(&new_job)
-                .execute(&mut conn)
+                .get_result::<JobModel>(&mut conn)
                 .map_err(|e| JobRepositoryError::DatabaseError(format!("Failed to save job: {}", e)))
         })
         .await
         .map_err(|e| JobRepositoryError::DatabaseError(format!("Task join error: {}", e)))??;
 
-        Ok(())
+        Ok(inserted_job.id)
     }
 
     async fn find_by_id(&self, job_id: Uuid) -> Result<Option<ProcessingJob>, JobRepositoryError> {

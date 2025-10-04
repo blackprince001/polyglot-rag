@@ -38,7 +38,7 @@ pub struct NewContentChunkModel {
 impl From<&DomainChunk> for NewContentChunkModel {
     fn from(domain_chunk: &DomainChunk) -> Self {
         Self {
-            id: Some(domain_chunk.id()),
+            id: None, // Let database generate the ID
             file_id: domain_chunk.file_id(),
             chunk_text: domain_chunk.chunk_text().to_string(),
             chunk_index: domain_chunk.chunk_index(),
@@ -52,13 +52,15 @@ impl From<&DomainChunk> for NewContentChunkModel {
 
 impl From<ContentChunkModel> for DomainChunk {
     fn from(model: ContentChunkModel) -> Self {
-        DomainChunk::new(
+        DomainChunk::with_id(
+            model.id,
             model.file_id,
             model.chunk_text,
             model.chunk_index,
             model.token_count,
             model.page_number,
             model.section_path,
+            model.created_at.unwrap_or_else(chrono::Utc::now),
         )
     }
 }

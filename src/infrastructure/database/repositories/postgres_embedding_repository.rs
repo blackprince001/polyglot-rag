@@ -24,24 +24,24 @@ impl PostgresEmbeddingRepository {
 
 #[async_trait]
 impl EmbeddingRepository for PostgresEmbeddingRepository {
-    async fn save(&self, embedding_entity: &Embedding) -> Result<(), EmbeddingRepositoryError> {
+    async fn save(&self, embedding_entity: &Embedding) -> Result<Uuid, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
         let new_embedding = NewEmbeddingModel::from(embedding_entity);
 
-        diesel::insert_into(embeddings)
+        let inserted_embedding: EmbeddingModel = diesel::insert_into(embeddings)
             .values(&new_embedding)
-            .execute(&mut conn)
+            .get_result(&mut conn)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
-        Ok(())
+        Ok(inserted_embedding.id)
     }
 
     async fn save_batch(
         &self,
         embedding_entities: &[Embedding],
-    ) -> Result<(), EmbeddingRepositoryError> {
+    ) -> Result<Vec<Uuid>, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
@@ -50,12 +50,12 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
             .map(NewEmbeddingModel::from)
             .collect();
 
-        diesel::insert_into(embeddings)
+        let inserted_embeddings: Vec<EmbeddingModel> = diesel::insert_into(embeddings)
             .values(&new_embeddings)
-            .execute(&mut conn)
+            .get_results(&mut conn)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
-        Ok(())
+        Ok(inserted_embeddings.into_iter().map(|emb| emb.id).collect())
     }
 
     async fn find_by_id(

@@ -21,6 +21,7 @@ pub struct FileModel {
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub metadata: Option<serde_json::Value>,
+    pub processing_status: String,
 }
 
 #[derive(Debug, Insertable, AsChangeset, Deserialize)]
@@ -36,6 +37,7 @@ pub struct NewFileModel {
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub metadata: Option<serde_json::Value>,
+    pub processing_status: String,
 }
 
 impl From<&DomainFile> for NewFileModel {
@@ -50,6 +52,7 @@ impl From<&DomainFile> for NewFileModel {
             created_at: Some(domain_file.created_at()),
             updated_at: Some(domain_file.updated_at()),
             metadata: domain_file.metadata().map(|m| m.clone().into()),
+            processing_status: domain_file.processing_status().to_string(),
         }
     }
 }
@@ -73,7 +76,13 @@ impl TryFrom<FileModel> for DomainFile {
             None
         };
 
-        let processing_status = ProcessingStatus::Pending; // Default status, could be enhanced later
+        let processing_status =
+            ProcessingStatus::from_string(&model.processing_status).map_err(|e| {
+                format!(
+                    "Invalid processing status '{}': {}",
+                    model.processing_status, e
+                )
+            })?;
 
         let domain_file = DomainFile::with_id(
             model.id,

@@ -14,11 +14,11 @@ use crate::infrastructure::database::schema::embeddings;
 pub struct EmbeddingModel {
     pub id: Uuid,
     pub content_chunk_id: Option<Uuid>,
+    pub embedding: Option<Vector>,
     pub model_name: String,
     pub model_version: Option<String>,
     pub generated_at: Option<DateTime<Utc>>,
     pub generation_parameters: Option<serde_json::Value>,
-    pub embedding: Option<Vector>,
 }
 
 #[derive(Debug, Insertable, AsChangeset)]
@@ -26,24 +26,24 @@ pub struct EmbeddingModel {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct NewEmbeddingModel {
     pub id: Option<Uuid>,
-    pub content_chunk_id: Uuid,
+    pub content_chunk_id: Option<Uuid>,
+    pub embedding: Option<Vector>,
     pub model_name: String,
     pub model_version: Option<String>,
     pub generated_at: Option<DateTime<Utc>>,
     pub generation_parameters: Option<serde_json::Value>,
-    pub embedding: Option<Vector>,
 }
 
 impl From<&DomainEmbedding> for NewEmbeddingModel {
     fn from(domain_embedding: &DomainEmbedding) -> Self {
         Self {
-            id: Some(domain_embedding.id()),
-            content_chunk_id: domain_embedding.content_chunk_id(),
+            id: None, // Let database generate the ID
+            content_chunk_id: Some(domain_embedding.content_chunk_id()),
+            embedding: Some(domain_embedding.embedding().clone()),
             model_name: domain_embedding.model_name().to_string(),
             model_version: domain_embedding.model_version().map(|s| s.to_string()),
             generated_at: Some(domain_embedding.generated_at()),
             generation_parameters: domain_embedding.generation_parameters().cloned(),
-            embedding: Some(domain_embedding.embedding().clone()),
         }
     }
 }
@@ -53,13 +53,16 @@ impl TryFrom<EmbeddingModel> for DomainEmbedding {
 
     fn try_from(model: EmbeddingModel) -> Result<Self, Self::Error> {
         let embedding_vector = model.embedding.ok_or("Embedding vector is required")?;
+        let content_chunk_id = model
+            .content_chunk_id
+            .ok_or("Content chunk ID is required")?;
 
-        Ok(DomainEmbedding::new(
-            model
-                .content_chunk_id
-                .ok_or("Content chunk ID is required")?,
+        Ok(DomainEmbedding::with_id(
+            model.id,
+            content_chunk_id,
             model.model_name,
             model.model_version,
+            model.generated_at.unwrap_or_else(chrono::Utc::now),
             model.generation_parameters,
             embedding_vector,
         ))
