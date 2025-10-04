@@ -9,6 +9,14 @@ use crate::application::ports::{
 use crate::domain::entities::{ContentChunk, Embedding, File};
 use crate::domain::repositories::{ChunkRepository, EmbeddingRepository, FileRepository};
 
+#[derive(Debug, Clone)]
+pub struct ChunkingConfig {
+    pub chunk_size: usize,
+    pub chunk_overlap: usize,
+    pub max_chunks_per_document: Option<usize>,
+    pub min_chunk_size: usize,
+}
+
 #[derive(Debug)]
 pub enum DocumentProcessingError {
     ExtractionError(String),
@@ -34,8 +42,59 @@ pub struct DocumentProcessorService {
     chunk_repository: Arc<dyn ChunkRepository>,
     embedding_repository: Arc<dyn EmbeddingRepository>,
     file_repository: Arc<dyn FileRepository>,
-    chunk_size: usize,
-    chunk_overlap: usize,
+    chunking_config: ChunkingConfig,
+}
+
+impl ChunkingConfig {
+    /// Creates a new ChunkingConfig from environment variables with sensible defaults
+    pub fn from_env() -> Self {
+        Self {
+            chunk_size: std::env::var("CHUNK_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(578),
+            chunk_overlap: std::env::var("CHUNK_OVERLAP")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(102),
+            max_chunks_per_document: std::env::var("MAX_CHUNKS_PER_DOCUMENT")
+                .ok()
+                .and_then(|s| s.parse().ok()),
+            min_chunk_size: std::env::var("MIN_CHUNK_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10),
+        }
+    }
+
+    /// Creates a new ChunkingConfig with custom values
+    pub fn new(
+        chunk_size: usize,
+        chunk_overlap: usize,
+        max_chunks_per_document: Option<usize>,
+        min_chunk_size: usize,
+    ) -> Self {
+        Self {
+            chunk_size,
+            chunk_overlap,
+            max_chunks_per_document,
+            min_chunk_size,
+        }
+    }
+
+    /// Validates the chunking configuration
+    pub fn validate(&self) -> Result<(), String> {
+        if self.chunk_size == 0 {
+            return Err("Chunk size must be greater than 0".to_string());
+        }
+        if self.chunk_overlap >= self.chunk_size {
+            return Err("Chunk overlap must be less than chunk size".to_string());
+        }
+        if self.min_chunk_size > self.chunk_size {
+            return Err("Minimum chunk size cannot be greater than chunk size".to_string());
+        }
+        Ok(())
+    }
 }
 
 impl DocumentProcessorService {
@@ -46,15 +105,61 @@ impl DocumentProcessorService {
         embedding_repository: Arc<dyn EmbeddingRepository>,
         file_repository: Arc<dyn FileRepository>,
     ) -> Self {
-        Self {
+        let chunking_config = ChunkingConfig::from_env();
+        Self::new_with_config(
             document_extractor,
             embedding_provider,
             chunk_repository,
             embedding_repository,
             file_repository,
-            chunk_size: 578,
-            chunk_overlap: 102,
+            chunking_config,
+        )
+    }
+
+    pub fn new_with_config(
+        document_extractor: Arc<dyn DocumentExtractor>,
+        embedding_provider: Arc<dyn EmbeddingProvider>,
+        chunk_repository: Arc<dyn ChunkRepository>,
+        embedding_repository: Arc<dyn EmbeddingRepository>,
+        file_repository: Arc<dyn FileRepository>,
+        chunking_config: ChunkingConfig,
+    ) -> Self {
+        // Validate configuration
+        if let Err(e) = chunking_config.validate() {
+            eprintln!("Warning: Invalid chunking configuration: {}", e);
+            eprintln!("Using default configuration instead");
+            let default_config = ChunkingConfig::new(578, 102, None, 10);
+            Self {
+                document_extractor,
+                embedding_provider,
+                chunk_repository,
+                embedding_repository,
+                file_repository,
+                chunking_config: default_config,
+            }
+        } else {
+            Self {
+                document_extractor,
+                embedding_provider,
+                chunk_repository,
+                embedding_repository,
+                file_repository,
+                chunking_config,
+            }
         }
+    }
+
+    /// Sanitizes text to ensure it's safe for database storage
+    /// Removes null bytes and other problematic characters that can cause UTF-8 encoding issues
+    fn sanitize_text_for_database(text: &str) -> String {
+        text.chars()
+            .filter(|c| *c != '\0') // Remove null bytes
+            .collect::<String>()
+    }
+
+    /// Returns the current chunking configuration
+    pub fn chunking_config(&self) -> &ChunkingConfig {
+        &self.chunking_config
     }
 
     pub async fn process_file(
@@ -62,11 +167,23 @@ impl DocumentProcessorService {
         file: &File,
         extraction_options: ExtractionOptions,
     ) -> Result<(i32, i32), DocumentProcessingError> {
+        println!(
+            "Processing file: {} with chunking config: {:?}",
+            file.file_name(),
+            self.chunking_config
+        );
+
         let extracted_content = self
             .extract_text_from_file(file, extraction_options)
             .await?;
 
         let chunks = self.create_chunks(file.id(), &extracted_content.text)?;
+
+        println!(
+            "Created {} chunks for file: {}",
+            chunks.len(),
+            file.file_name()
+        );
 
         match self.file_repository.find_by_id(file.id()).await {
             Ok(Some(_verified_file)) => {}
@@ -84,12 +201,32 @@ impl DocumentProcessorService {
             }
         }
 
-        self.chunk_repository
+        // Save chunks and get their database-generated IDs
+        let chunk_ids = self
+            .chunk_repository
             .save_batch(&chunks)
             .await
             .map_err(|e| DocumentProcessingError::RepositoryError(e.to_string()))?;
 
-        let embeddings = self.generate_embeddings_for_chunks(&chunks).await?;
+        // Update chunks with their database IDs
+        let mut chunks_with_ids = Vec::new();
+        for (chunk, chunk_id) in chunks.iter().zip(chunk_ids.iter()) {
+            let chunk_with_id = ContentChunk::with_id(
+                *chunk_id,
+                chunk.file_id(),
+                chunk.chunk_text().to_string(),
+                chunk.chunk_index(),
+                chunk.token_count(),
+                chunk.page_number(),
+                chunk.section_path().map(|s| s.to_string()),
+                chunk.created_at(),
+            );
+            chunks_with_ids.push(chunk_with_id);
+        }
+
+        let embeddings = self
+            .generate_embeddings_for_chunks(&chunks_with_ids)
+            .await?;
 
         self.embedding_repository
             .save_batch(&embeddings)
@@ -116,7 +253,11 @@ impl DocumentProcessorService {
         text: &str,
     ) -> Result<Vec<ContentChunk>, DocumentProcessingError> {
         let mut chunks = Vec::new();
-        let words: Vec<&str> = text.split_whitespace().collect();
+
+        // Additional safety check: sanitize text to ensure it's valid UTF-8 for database storage
+        let sanitized_text = Self::sanitize_text_for_database(text);
+
+        let words: Vec<&str> = sanitized_text.split_whitespace().collect();
 
         if words.is_empty() {
             return Ok(chunks);
@@ -126,14 +267,25 @@ impl DocumentProcessorService {
         let mut chunk_index = 0;
 
         while start < words.len() {
+            // Check if we've reached the maximum number of chunks
+            if let Some(max_chunks) = self.chunking_config.max_chunks_per_document {
+                if chunks.len() >= max_chunks {
+                    eprintln!(
+                        "Warning: Reached maximum chunks limit ({}) for document. Stopping chunking.",
+                        max_chunks
+                    );
+                    break;
+                }
+            }
+
             // Calculate end position for this chunk
-            let end = std::cmp::min(start + self.chunk_size, words.len());
+            let end = std::cmp::min(start + self.chunking_config.chunk_size, words.len());
 
             // Create chunk text
             let chunk_text = words[start..end].join(" ");
 
             // Skip empty or very small chunks
-            if chunk_text.trim().len() < 10 {
+            if chunk_text.trim().len() < self.chunking_config.min_chunk_size {
                 break;
             }
 
@@ -154,7 +306,10 @@ impl DocumentProcessorService {
             start = if end >= words.len() {
                 break;
             } else {
-                std::cmp::max(start + self.chunk_size - self.chunk_overlap, start + 1)
+                std::cmp::max(
+                    start + self.chunking_config.chunk_size - self.chunking_config.chunk_overlap,
+                    start + 1,
+                )
             };
         }
 

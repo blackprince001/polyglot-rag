@@ -1,4 +1,7 @@
 pub mod document_processor;
+
+pub use document_processor::ChunkingConfig;
+
 pub mod embedding_service;
 pub mod search_service;
 

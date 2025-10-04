@@ -21,6 +21,18 @@ impl PdfExtractor {
         }
     }
 
+    /// Sanitizes text extracted from PDF to ensure it's safe for database storage
+    /// Removes null bytes and other problematic characters that can cause UTF-8 encoding issues
+    fn sanitize_pdf_text(text: &str) -> String {
+        text.chars()
+            .filter(|c| *c != '\0') // Remove null bytes
+            .filter(|c| {
+                // Keep printable characters, whitespace, and common punctuation
+                c.is_alphanumeric() || c.is_whitespace() || matches!(c, '!'..='~' | '¡'..='ÿ') // Printable ASCII + Latin-1
+            })
+            .collect::<String>()
+    }
+
     // pub fn with_password(password: String) -> Self {
     //     Self { password }
     // }
@@ -87,11 +99,21 @@ impl PdfExtractor {
             .map(
                 |(page_num, _): (u32, (u32, u16))| -> Result<(u32, Vec<String>), String> {
                     // Try extract_text method
-                    let text = doc.extract_text(&[page_num]).map_err(|e| {
+                    let raw_text = doc.extract_text(&[page_num]).map_err(|e| {
                         format!("Failed to extract text from page {}: {}", page_num, e)
                     })?;
 
-                    let lines: Vec<String> = text
+                    // Sanitize the text to remove null bytes and other invalid UTF-8 sequences
+                    let sanitized_text = Self::sanitize_pdf_text(&raw_text);
+
+                    // If sanitization resulted in empty text, provide a fallback message
+                    let final_text = if sanitized_text.trim().is_empty() {
+                        format!("[Page {}: No extractable text found - may contain images or corrupted text]", page_num)
+                    } else {
+                        sanitized_text
+                    };
+
+                    let lines: Vec<String> = final_text
                         .split('\n')
                         .map(|s| s.trim_end().to_string())
                         .filter(|s| !s.is_empty())
