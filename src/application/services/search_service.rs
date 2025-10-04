@@ -87,9 +87,9 @@ impl SearchService {
                 .await
             {
                 results.push(SearchResult {
-                    chunk,
+                    chunk: chunk.clone(),
                     similarity_score: similarity_result.similarity_score,
-                    file_id: similarity_result.chunk_id, // This should be the file_id from the chunk
+                    file_id: chunk.file_id(), // CORRECT: Use the file_id from the chunk
                 });
             }
         }

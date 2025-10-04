@@ -165,12 +165,29 @@ impl BackgroundProcessor {
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         // Get the file - this should exist if upload was successful
-        let file = self
+        let mut file = self
             .file_repository
             .find_by_id(job.file_id())
             .await
             .map_err(|e| format!("Failed to find file: {}", e))?
             .ok_or_else(|| format!("File not found in database: {}", job.file_id()))?;
+
+        // Update file processing status to processing
+        if let Err(e) = file.start_processing() {
+            eprintln!(
+                "Failed to start file processing for {}: {}",
+                job.file_id(),
+                e
+            );
+        } else {
+            if let Err(e) = self.file_repository.update(&file).await {
+                eprintln!(
+                    "Failed to update file processing status for {}: {}",
+                    job.file_id(),
+                    e
+                );
+            }
+        }
 
         // Update progress
         let _ = job.update_progress(0.2, Some("Processing document...".to_string()));
@@ -181,7 +198,37 @@ impl BackgroundProcessor {
             .document_processor
             .process_file(&file, ExtractionOptions::default())
             .await
-            .map_err(|e| format!("Document processing failed: {}", e))?;
+            .map_err(|e| {
+                // Update file status to failed
+                if let Err(update_err) = file.fail_processing(e.to_string()) {
+                    eprintln!(
+                        "Failed to update file status to failed for {}: {}",
+                        job.file_id(),
+                        update_err
+                    );
+                } else {
+                    // Note: We can't await here in the error handler, so we'll update the file status separately
+                    eprintln!("File {} processing failed: {}", job.file_id(), e);
+                }
+                format!("Document processing failed: {}", e)
+            })?;
+
+        // Update file processing status to completed
+        if let Err(e) = file.complete_processing() {
+            eprintln!(
+                "Failed to complete file processing for {}: {}",
+                job.file_id(),
+                e
+            );
+        } else {
+            if let Err(e) = self.file_repository.update(&file).await {
+                eprintln!(
+                    "Failed to update file processing status to completed for {}: {}",
+                    job.file_id(),
+                    e
+                );
+            }
+        }
 
         Ok(JobResult {
             chunks_created,
@@ -200,6 +247,31 @@ impl BackgroundProcessor {
         let _ = job.update_progress(0.1, Some("Extracting content from URL...".to_string()));
         let _ = self.job_repository.update(job).await;
 
+        // Get the file and update its processing status
+        let mut file = self
+            .file_repository
+            .find_by_id(job.file_id())
+            .await
+            .map_err(|e| format!("Failed to find file: {}", e))?
+            .ok_or_else(|| format!("File not found in database: {}", job.file_id()))?;
+
+        // Update file processing status to processing
+        if let Err(e) = file.start_processing() {
+            eprintln!(
+                "Failed to start file processing for {}: {}",
+                job.file_id(),
+                e
+            );
+        } else {
+            if let Err(e) = self.file_repository.update(&file).await {
+                eprintln!(
+                    "Failed to update file processing status for {}: {}",
+                    job.file_id(),
+                    e
+                );
+            }
+        }
+
         // Extract content from URL
         let extracted_content = self
             .document_extractor
@@ -212,36 +284,135 @@ impl BackgroundProcessor {
                 },
             )
             .await
-            .map_err(|e| format!("URL extraction failed: {}", e))?;
+            .map_err(|e| {
+                // Update file status to failed
+                if let Err(update_err) = file.fail_processing(e.to_string()) {
+                    eprintln!(
+                        "Failed to update file status to failed for {}: {}",
+                        job.file_id(),
+                        update_err
+                    );
+                } else {
+                    eprintln!("File {} URL extraction failed: {}", job.file_id(), e);
+                }
+                format!("URL extraction failed: {}", e)
+            })?;
 
         // Update progress
         let _ = job.update_progress(0.3, Some("Creating chunks...".to_string()));
         let _ = self.job_repository.update(job).await;
 
         // Create chunks from extracted text
-        let chunks = self.create_chunks_from_text(job.file_id(), &extracted_content.text)?;
+        let chunks = self
+            .create_chunks_from_text(job.file_id(), &extracted_content.text)
+            .map_err(|e| {
+                // Update file status to failed
+                if let Err(update_err) = file.fail_processing(e.clone()) {
+                    eprintln!(
+                        "Failed to update file status to failed for {}: {}",
+                        job.file_id(),
+                        update_err
+                    );
+                } else {
+                    eprintln!("File {} chunk creation failed: {}", job.file_id(), e);
+                }
+                e
+            })?;
 
-        // Save chunks
-        self.chunk_repository
+        // Save chunks and get their database-generated IDs
+        let chunk_ids = self
+            .chunk_repository
             .save_batch(&chunks)
             .await
-            .map_err(|e| format!("Failed to save chunks: {}", e))?;
+            .map_err(|e| {
+                // Update file status to failed
+                if let Err(update_err) = file.fail_processing(e.to_string()) {
+                    eprintln!(
+                        "Failed to update file status to failed for {}: {}",
+                        job.file_id(),
+                        update_err
+                    );
+                } else {
+                    eprintln!("File {} chunk save failed: {}", job.file_id(), e);
+                }
+                format!("Failed to save chunks: {}", e)
+            })?;
+
+        // Update chunks with their database IDs
+        let mut chunks_with_ids = Vec::new();
+        for (chunk, chunk_id) in chunks.iter().zip(chunk_ids.iter()) {
+            let chunk_with_id = crate::domain::entities::ContentChunk::with_id(
+                *chunk_id,
+                chunk.file_id(),
+                chunk.chunk_text().to_string(),
+                chunk.chunk_index(),
+                chunk.token_count(),
+                chunk.page_number(),
+                chunk.section_path().map(|s| s.to_string()),
+                chunk.created_at(),
+            );
+            chunks_with_ids.push(chunk_with_id);
+        }
 
         // Update progress
         let _ = job.update_progress(0.6, Some("Generating embeddings...".to_string()));
         let _ = self.job_repository.update(job).await;
 
         // Generate embeddings
-        let embeddings = self.generate_embeddings_for_chunks(&chunks).await?;
+        let embeddings = self
+            .generate_embeddings_for_chunks(&chunks_with_ids)
+            .await
+            .map_err(|e| {
+                // Update file status to failed
+                if let Err(update_err) = file.fail_processing(e.clone()) {
+                    eprintln!(
+                        "Failed to update file status to failed for {}: {}",
+                        job.file_id(),
+                        update_err
+                    );
+                } else {
+                    eprintln!("File {} embedding generation failed: {}", job.file_id(), e);
+                }
+                e
+            })?;
 
         // Save embeddings
         self.embedding_repository
             .save_batch(&embeddings)
             .await
-            .map_err(|e| format!("Failed to save embeddings: {}", e))?;
+            .map_err(|e| {
+                // Update file status to failed
+                if let Err(update_err) = file.fail_processing(e.to_string()) {
+                    eprintln!(
+                        "Failed to update file status to failed for {}: {}",
+                        job.file_id(),
+                        update_err
+                    );
+                } else {
+                    eprintln!("File {} embedding save failed: {}", job.file_id(), e);
+                }
+                format!("Failed to save embeddings: {}", e)
+            })?;
+
+        // Update file processing status to completed
+        if let Err(e) = file.complete_processing() {
+            eprintln!(
+                "Failed to complete file processing for {}: {}",
+                job.file_id(),
+                e
+            );
+        } else {
+            if let Err(e) = self.file_repository.update(&file).await {
+                eprintln!(
+                    "Failed to update file processing status to completed for {}: {}",
+                    job.file_id(),
+                    e
+                );
+            }
+        }
 
         Ok(JobResult {
-            chunks_created: chunks.len() as i32,
+            chunks_created: chunks_with_ids.len() as i32,
             embeddings_created: embeddings.len() as i32,
             processing_time_ms: 0,
             extracted_text_length: extracted_content.text.len(),
@@ -278,18 +449,37 @@ impl BackgroundProcessor {
         // Create chunks from transcript
         let chunks = self.create_chunks_from_text(job.file_id(), &extracted_content.text)?;
 
-        // Save chunks
-        self.chunk_repository
+        // Save chunks and get their database-generated IDs
+        let chunk_ids = self
+            .chunk_repository
             .save_batch(&chunks)
             .await
             .map_err(|e| format!("Failed to save chunks: {}", e))?;
+
+        // Update chunks with their database IDs
+        let mut chunks_with_ids = Vec::new();
+        for (chunk, chunk_id) in chunks.iter().zip(chunk_ids.iter()) {
+            let chunk_with_id = crate::domain::entities::ContentChunk::with_id(
+                *chunk_id,
+                chunk.file_id(),
+                chunk.chunk_text().to_string(),
+                chunk.chunk_index(),
+                chunk.token_count(),
+                chunk.page_number(),
+                chunk.section_path().map(|s| s.to_string()),
+                chunk.created_at(),
+            );
+            chunks_with_ids.push(chunk_with_id);
+        }
 
         // Update progress
         let _ = job.update_progress(0.6, Some("Generating embeddings...".to_string()));
         let _ = self.job_repository.update(job).await;
 
         // Generate embeddings
-        let embeddings = self.generate_embeddings_for_chunks(&chunks).await?;
+        let embeddings = self
+            .generate_embeddings_for_chunks(&chunks_with_ids)
+            .await?;
 
         // Save embeddings
         self.embedding_repository
@@ -298,7 +488,7 @@ impl BackgroundProcessor {
             .map_err(|e| format!("Failed to save embeddings: {}", e))?;
 
         Ok(JobResult {
-            chunks_created: chunks.len() as i32,
+            chunks_created: chunks_with_ids.len() as i32,
             embeddings_created: embeddings.len() as i32,
             processing_time_ms: 0,
             extracted_text_length: extracted_content.text.len(),
