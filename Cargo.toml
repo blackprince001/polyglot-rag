@@ -34,10 +34,10 @@ sha1 = "0.10"
 yt-transcript-rs = "0.1.8"
 async-trait = "0.1"
 aws-config = { version = "1", features = ["behavior-version-latest"] }
-aws-sdk-s3 = "1"
+aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
 aws-credential-types = "1"
 base64 = "0.22"
-env_logger = "0.10"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dotenv = "0.15"
 regex = "1.10"
 futures = "0.3"
