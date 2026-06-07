@@ -5,7 +5,7 @@ use crate::domain::entities::File;
 
 
 use crate::application::ports::document_extractor::{
-    DocumentExtractionError, DocumentExtractor, ExtractedContent, ExtractionOptions,
+    DocumentExtractionError, DocumentExtractor, ExtractedDocument, ExtractionOptions,
 };
 use crate::domain::value_objects::FileMetadata;
 
@@ -26,7 +26,7 @@ impl YoutubeExtractor {
         &self,
         youtube_url: &str,
         options: &ExtractionOptions,
-    ) -> Result<ExtractedContent, DocumentExtractionError> {
+    ) -> Result<ExtractedDocument, DocumentExtractionError> {
         // Parse URL and extract video ID
         let url = Url::parse(youtube_url).map_err(|e| {
             DocumentExtractionError::ExtractionFailed(format!("Invalid YouTube URL: {}", e))
@@ -107,13 +107,9 @@ impl YoutubeExtractor {
         }
 
         let text = timestamped_content.clone().join("\n");
+        let _ = metadata;
 
-        Ok(ExtractedContent {
-            text,
-            metadata,
-            page_count: Some(1), // YouTube video is considered as 1 "page"
-            language: Some("en".to_string()), // Could be detected from transcript
-        })
+        Ok(ExtractedDocument::text_only(text))
     }
 
     fn extract_video_id(&self, url: &Url) -> Result<String, DocumentExtractionError> {
@@ -162,7 +158,7 @@ impl DocumentExtractor for YoutubeExtractor {
         &self,
         file: &File,
         options: ExtractionOptions,
-    ) -> Result<ExtractedContent, DocumentExtractionError> {
+    ) -> Result<ExtractedDocument, DocumentExtractionError> {
         let youtube_url = file.file_path();
         self.extract_from_url(youtube_url, &options).await
     }
@@ -172,7 +168,7 @@ impl DocumentExtractor for YoutubeExtractor {
         data: &[u8],
         file_type: &str,
         options: ExtractionOptions,
-    ) -> Result<ExtractedContent, DocumentExtractionError> {
+    ) -> Result<ExtractedDocument, DocumentExtractionError> {
         if file_type != "text/youtube-url"
             && file_type != "text/youtube-transcript"
             && file_type != "text/plain"
@@ -190,20 +186,11 @@ impl DocumentExtractor for YoutubeExtractor {
         self.extract_from_url(youtube_url, &options).await
     }
 
-    fn supported_formats(&self) -> Vec<String> {
-        vec![
-            "text/youtube-url".to_string(),
-            "text/youtube-transcript".to_string(),
-            "application/youtube".to_string(),
-        ]
-    }
-
     fn can_extract(&self, file_type: &str) -> bool {
-        self.supported_formats().contains(&file_type.to_lowercase())
-    }
-
-    fn max_file_size(&self) -> Option<usize> {
-        Some(1024)
+        matches!(
+            file_type.to_lowercase().as_str(),
+            "text/youtube-url" | "text/youtube-transcript" | "application/youtube"
+        )
     }
 }
 

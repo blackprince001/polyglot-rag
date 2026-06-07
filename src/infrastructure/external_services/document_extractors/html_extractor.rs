@@ -4,7 +4,7 @@ use html2text::from_read;
 use url::Url;
 
 use crate::application::ports::document_extractor::{
-    DocumentExtractionError, DocumentExtractor, ExtractedContent, ExtractionOptions,
+    DocumentExtractionError, DocumentExtractor, ExtractedDocument, ExtractionOptions,
 };
 use crate::domain::value_objects::FileMetadata;
 
@@ -79,36 +79,27 @@ impl DocumentExtractor for HtmlExtractor {
         &self,
         file: &File,
         options: ExtractionOptions,
-    ) -> Result<ExtractedContent, DocumentExtractionError> {
+    ) -> Result<ExtractedDocument, DocumentExtractionError> {
         let content_path = file.file_path();
         let padding = 80; // Default padding for text width
         let text = self
             .extract_from_html_content(&content_path, padding)
             .await?;
 
-        let mut metadata = FileMetadata::new();
+        let _metadata = FileMetadata::new();
         if options.extract_metadata {
-            // Extract basic metadata from HTML
-            if let Some(title) = extract_title_from_html(&content_path) {
-                metadata.set_title(title);
-            }
-            metadata.set_language("html".to_string());
+            let _ = extract_title_from_html(&content_path);
         }
 
-        Ok(ExtractedContent {
-            text,
-            metadata,
-            page_count: Some(1), // HTML is considered as 1 "page"
-            language: Some("html".to_string()),
-        })
+        Ok(ExtractedDocument::text_only(text))
     }
 
     async fn extract_text_from_bytes(
         &self,
         data: &[u8],
         file_type: &str,
-        options: ExtractionOptions,
-    ) -> Result<ExtractedContent, DocumentExtractionError> {
+        _options: ExtractionOptions,
+    ) -> Result<ExtractedDocument, DocumentExtractionError> {
         if file_type != "text/html" && file_type != "application/html" {
             return Err(DocumentExtractionError::UnsupportedFormat(
                 file_type.to_string(),
@@ -124,36 +115,14 @@ impl DocumentExtractor for HtmlExtractor {
             .extract_from_html_content(&html_content, padding)
             .await?;
 
-        let mut metadata = FileMetadata::new();
-        if options.extract_metadata {
-            if let Some(title) = extract_title_from_html(&html_content) {
-                metadata.set_title(title);
-            }
-            metadata.set_language("html".to_string());
-        }
-
-        Ok(ExtractedContent {
-            text,
-            metadata,
-            page_count: Some(1),
-            language: Some("html".to_string()),
-        })
-    }
-
-    fn supported_formats(&self) -> Vec<String> {
-        vec![
-            "text/html".to_string(),
-            "application/html".to_string(),
-            "text/htm".to_string(),
-        ]
+        Ok(ExtractedDocument::text_only(text))
     }
 
     fn can_extract(&self, file_type: &str) -> bool {
-        self.supported_formats().contains(&file_type.to_lowercase())
-    }
-
-    fn max_file_size(&self) -> Option<usize> {
-        Some(50 * 1024 * 1024) // 50MB max for HTML files
+        matches!(
+            file_type.to_lowercase().as_str(),
+            "text/html" | "application/html" | "text/htm"
+        )
     }
 }
 
