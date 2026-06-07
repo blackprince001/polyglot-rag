@@ -25,6 +25,8 @@ services:
             - driver: nvidia
               capabilities: [gpu]
               count: 1
+    ports:
+      - "8080:80"
     command: --model-id Qwen/Qwen3-Embedding-0.6B
     networks:
       - app-network
