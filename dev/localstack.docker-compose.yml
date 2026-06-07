@@ -29,6 +29,19 @@ services:
     networks:
       - app-network
 
+  localstack:
+    image: localstack/localstack:4.0
+    container_name: polyrag_localstack
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - ./localstack/ready.d:/etc/localstack/init/ready.d
+    ports:
+      - "4566:4566"
+    networks:
+      - app-network
+
   polyrag:
     build:
       context: ../
@@ -37,26 +50,31 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres/postgres
       - EMBEDDINGS_SERVICE_URL=http://text-embeddings-inference
-      - UPLOAD_DIR=./uploads
       - PORT=9000
-      - CHUNK_SIZE=200
-      - CHUNK_OVERLAP=50
-      - MAX_CHUNKS_PER_DOCUMENT=
-      - MIN_CHUNK_SIZE=100
+      - RUST_BACKTRACE=1
+      - STORAGE_BACKEND=s3
+      - S3_BUCKET=polyrag-local
+      - S3_REGION=us-east-1
+      - S3_ENDPOINT=http://localstack:4566
+      - S3_FORCE_PATH_STYLE=true
+      - S3_ACCESS_KEY_ID=test
+      - S3_SECRET_ACCESS_KEY=test
       - HOST=0.0.0.0
       - WORKER_COUNT=3
+      - UPLOAD_DIR=./uploads
       - CORS_ALLOWED_ORIGINS=
       - TENANT_MANAGEMENT_KEY=
       - PRESIGNED_UPLOAD_TTL_SECS=900
       - PRESIGNED_DOWNLOAD_TTL_SECS=300
+      - CHUNK_SIZE=200
+      - CHUNK_OVERLAP=50
+      - MAX_CHUNKS_PER_DOCUMENT=
+      - MIN_CHUNK_SIZE=100
       - JANITOR_INTERVAL_SECS=300
       - JANITOR_DANGLING_THRESHOLD_SECS=
       - JANITOR_STALE_PROCESSING_SECS=1800
-      - RUST_BACKTRACE=1
     ports:
       - "9000:9000"
-    volumes:
-      - uploads:/app/uploads
     depends_on:
       - postgres
     restart: unless-stopped
@@ -65,7 +83,6 @@ services:
 
 volumes:
   pgdata:
-  uploads:
 
 networks:
   app-network:
