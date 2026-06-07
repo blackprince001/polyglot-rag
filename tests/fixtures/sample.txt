@@ -1,0 +1,5 @@
+Polyglot RAG smoke fixture.
+Plain text ingestion path.
+Line three with unicode: café, naïve, 北京.
+The quick brown fox jumps over the lazy dog.
+End of fixture.
