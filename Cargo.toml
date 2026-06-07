@@ -53,6 +53,3 @@ scalar_api_reference = { version = "0.2.2", features = ["axum"] }
 proptest = "1.11.0"
 # tempfile = "3.23.0"
 
-
-[package.metadata.husky]
-skip-install = true
