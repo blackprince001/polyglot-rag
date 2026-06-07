@@ -1,6 +1,7 @@
 -- Create processing_jobs table for async job management
 CREATE TABLE processing_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     file_id UUID NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     job_type VARCHAR(150) NOT NULL,
     job_data JSONB,
@@ -14,6 +15,7 @@ CREATE TABLE processing_jobs (
 );
 
 -- Create indexes for better query performance
+CREATE INDEX idx_processing_jobs_tenant_id ON processing_jobs(tenant_id);
 CREATE INDEX idx_processing_jobs_file_id ON processing_jobs(file_id);
 CREATE INDEX idx_processing_jobs_status ON processing_jobs(status);
 CREATE INDEX idx_processing_jobs_created_at ON processing_jobs(created_at);

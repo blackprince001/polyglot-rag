@@ -4,11 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-reqwest = "0.12.15"
+reqwest = { version = "0.12.15", features = ["multipart"] }
 tokio = { version = "1.45.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
 html2text = "0.14.4"
 url = "2.5.4"
 lopdf = "0.36.0"
+# PNG encoding for raw (FlateDecode) PDF image samples; JPEG/JPX streams are
+# written through unchanged so we only need the PNG encoder here.
+image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 rayon = "1.10.0"
@@ -26,14 +30,27 @@ axum = { version = "0.8.4", features = ["multipart"] }
 tower = "0.4"
 tower-http = { version = "0.6.1", features = ["cors", "trace", "limit"] }
 sha2 = "0.10.9"
+sha1 = "0.10"
 yt-transcript-rs = "0.1.8"
 async-trait = "0.1"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1"
+aws-credential-types = "1"
+base64 = "0.22"
 env_logger = "0.10"
 dotenv = "0.15"
 regex = "1.10"
 futures = "0.3"
 diesel_migrations = { version = "2.3.0", features = ["postgres"] }
 tracing = "0.1.41"
+utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
+docx-rs = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = { version = "0.36", features = ["serialize"] }
+scalar_api_reference = { version = "0.2.2", features = ["axum"] }
+
+[dev-dependencies]
+proptest = "1.11.0"
 # tempfile = "3.23.0"
 
 

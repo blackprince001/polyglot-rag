@@ -2,7 +2,7 @@
 # see https://diesel.rs/guides/configuring-diesel-cli
 
 [print_schema]
-file = "src/db/schema.rs"
+file = "src/infrastructure/database/schema.rs"
 custom_type_derives = [
   "diesel::query_builder::QueryId",
   "Clone",
@@ -15,4 +15,4 @@ generate_missing_sql_type_definitions = false
 
 
 [migrations_directory]
-dir = "/Users/blackprince/Documents/dev/personal/test-html-extractor/migrations"
+dir = "migrations"
