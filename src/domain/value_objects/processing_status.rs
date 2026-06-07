@@ -147,18 +147,29 @@ mod tests {
 
     #[test]
     fn test_string_conversion() {
-        let statuses = vec![
+        // The non-failed variants round-trip exactly.
+        for status in [
             ProcessingStatus::Pending,
             ProcessingStatus::Processing,
             ProcessingStatus::Completed,
-            ProcessingStatus::Failed("test error".to_string()),
-        ];
-
-        for status in statuses {
-            let string_repr = status.to_string();
-            let parsed = ProcessingStatus::from_string(&string_repr).unwrap();
+        ] {
+            let parsed = ProcessingStatus::from_string(&status.to_string()).unwrap();
             assert_eq!(status, parsed);
         }
+
+        // `to_string()` intentionally collapses `Failed(_)` to the bare "failed"
+        // status; the error payload is persisted separately (the `error_message`
+        // column). So the round-trip preserves the variant but not the message.
+        let failed = ProcessingStatus::Failed("test error".to_string());
+        let parsed = ProcessingStatus::from_string(&failed.to_string()).unwrap();
+        assert!(parsed.is_failed());
+    }
+
+    #[test]
+    fn test_failed_round_trip_with_inline_error() {
+        // The "failed: <msg>" legacy form does carry the message back.
+        let parsed = ProcessingStatus::from_string("failed: boom").unwrap();
+        assert_eq!(parsed, ProcessingStatus::Failed("boom".to_string()));
     }
 
     #[test]

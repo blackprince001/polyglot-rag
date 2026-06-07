@@ -79,6 +79,7 @@ impl ProcessYoutubeDirectUseCase {
 
     pub async fn execute(
         &self,
+        tenant_id: Uuid,
         request: ProcessYoutubeDirectRequest,
     ) -> Result<ProcessYoutubeDirectResponse, ProcessYoutubeDirectError> {
         // Validate YouTube URL
@@ -138,7 +139,7 @@ impl ProcessYoutubeDirectUseCase {
         // Save file to repository and get the generated ID
         let file_id = self
             .file_repository
-            .save(&file)
+            .save(tenant_id, &file)
             .await
             .map_err(|e| ProcessYoutubeDirectError::RepositoryError(e.to_string()))?;
 
@@ -151,7 +152,9 @@ impl ProcessYoutubeDirectUseCase {
                 },
             };
 
-            self.queue_job_use_case.execute(queue_request).await?
+            self.queue_job_use_case
+                .execute(tenant_id, queue_request)
+                .await?
         } else {
             return Err(ProcessYoutubeDirectError::ValidationError(
                 "Auto-processing is required for direct YouTube processing".to_string(),

@@ -1,15 +1,15 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-// Request DTOs for direct content processing
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ProcessUrlRequest {
     pub url: String,
     pub filename: Option<String>,
     pub auto_process: Option<bool>, // Default: true
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ProcessYoutubeRequest {
     pub url: String,
     pub filename: Option<String>,
@@ -18,8 +18,15 @@ pub struct ProcessYoutubeRequest {
     pub auto_process: Option<bool>,       // Default: true
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ProcessTextRequest {
+    pub text: String,
+    pub filename: Option<String>,
+    pub auto_process: Option<bool>,
+}
+
 // Response DTOs
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ContentProcessingResponse {
     pub job_id: Option<Uuid>,
     pub file_id: Uuid,
@@ -72,8 +79,27 @@ impl From<crate::application::use_cases::process_youtube_direct::ProcessYoutubeD
     }
 }
 
+impl From<crate::application::use_cases::process_text_direct::ProcessTextDirectResponse>
+    for ContentProcessingResponse
+{
+    fn from(
+        response: crate::application::use_cases::process_text_direct::ProcessTextDirectResponse,
+    ) -> Self {
+        Self {
+            job_id: Some(response.job_id),
+            file_id: response.file_id,
+            source_url: None,
+            source_type: "text".to_string(),
+            filename: response.filename,
+            status: response.status,
+            message: response.message,
+            estimated_completion_minutes: Some(1), // Text is the fastest ingest path.
+            progress_stream_url: Some(format!("/jobs/{}/stream", response.job_id)),
+        }
+    }
+}
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UploadWithProcessingResponse {
     pub file_id: Uuid,
     pub job_id: Option<Uuid>,

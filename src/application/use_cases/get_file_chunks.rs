@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::domain::entities::ContentChunk;
+use crate::domain::entities::{Asset, ContentChunk, File};
 use crate::domain::repositories::{
-    ChunkRepository, FileRepository, chunk_repository::ChunkRepositoryError,
-    file_repository::FileRepositoryError,
+    AssetRepository, ChunkRepository, FileRepository, asset_repository::AssetRepositoryError,
+    chunk_repository::ChunkRepositoryError, file_repository::FileRepositoryError,
 };
 
 #[derive(Debug)]
@@ -26,15 +26,18 @@ impl std::error::Error for GetFileChunksError {}
 
 impl From<FileRepositoryError> for GetFileChunksError {
     fn from(error: FileRepositoryError) -> Self {
-        match error {
-            FileRepositoryError::NotFound(id) => GetFileChunksError::FileNotFound(id),
-            _ => GetFileChunksError::RepositoryError(error.to_string()),
-        }
+        GetFileChunksError::RepositoryError(error.to_string())
     }
 }
 
 impl From<ChunkRepositoryError> for GetFileChunksError {
     fn from(error: ChunkRepositoryError) -> Self {
+        GetFileChunksError::RepositoryError(error.to_string())
+    }
+}
+
+impl From<AssetRepositoryError> for GetFileChunksError {
+    fn from(error: AssetRepositoryError) -> Self {
         GetFileChunksError::RepositoryError(error.to_string())
     }
 }
@@ -48,37 +51,39 @@ pub struct GetFileChunksRequest {
 
 #[derive(Debug, Clone)]
 pub struct GetFileChunksResponse {
-    pub file_id: Uuid,
+    pub file: File,
     pub chunks: Vec<ContentChunk>,
-    pub total_chunks: i64,
-    pub skip: i64,
-    pub limit: i64,
+    pub assets: Vec<Asset>,
 }
 
 pub struct GetFileChunksUseCase {
     file_repository: Arc<dyn FileRepository>,
     chunk_repository: Arc<dyn ChunkRepository>,
+    asset_repository: Arc<dyn AssetRepository>,
 }
 
 impl GetFileChunksUseCase {
     pub fn new(
         file_repository: Arc<dyn FileRepository>,
         chunk_repository: Arc<dyn ChunkRepository>,
+        asset_repository: Arc<dyn AssetRepository>,
     ) -> Self {
         Self {
             file_repository,
             chunk_repository,
+            asset_repository,
         }
     }
 
     pub async fn execute(
         &self,
+        tenant_id: Uuid,
         request: GetFileChunksRequest,
     ) -> Result<GetFileChunksResponse, GetFileChunksError> {
-        // Verify file exists
-        let _file = self
+        // Verify file exists (and capture its metadata for the response)
+        let file = self
             .file_repository
-            .find_by_id(request.file_id)
+            .find_by_id(tenant_id, request.file_id)
             .await?
             .ok_or(GetFileChunksError::FileNotFound(request.file_id))?;
 
@@ -88,21 +93,19 @@ impl GetFileChunksUseCase {
         // Get chunks for the file
         let chunks = self
             .chunk_repository
-            .find_by_file_id_paginated(request.file_id, skip, limit)
+            .find_by_file_id_paginated(tenant_id, request.file_id, skip, limit)
             .await?;
 
-        // Get total count of chunks for this file
-        let total_chunks = self
-            .chunk_repository
-            .count_by_file_id(request.file_id)
+        // Load any extracted assets (images, etc) for this file.
+        let assets = self
+            .asset_repository
+            .find_by_file_id(tenant_id, request.file_id)
             .await?;
 
         Ok(GetFileChunksResponse {
-            file_id: request.file_id,
+            file,
             chunks,
-            total_chunks,
-            skip,
-            limit,
+            assets,
         })
     }
 }

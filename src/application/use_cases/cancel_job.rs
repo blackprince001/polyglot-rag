@@ -27,10 +27,7 @@ impl std::error::Error for CancelJobError {}
 
 impl From<JobRepositoryError> for CancelJobError {
     fn from(error: JobRepositoryError) -> Self {
-        match error {
-            JobRepositoryError::NotFound(id) => CancelJobError::JobNotFound(id),
-            _ => CancelJobError::RepositoryError(error.to_string()),
-        }
+        CancelJobError::RepositoryError(error.to_string())
     }
 }
 
@@ -58,28 +55,31 @@ pub struct CancelJobUseCase {
 }
 
 impl CancelJobUseCase {
-    pub fn new(
-        job_repository: Arc<dyn JobRepository>,
-        job_queue: Arc<dyn JobQueue>,
-    ) -> Self {
+    pub fn new(job_repository: Arc<dyn JobRepository>, job_queue: Arc<dyn JobQueue>) -> Self {
         Self {
             job_repository,
             job_queue,
         }
     }
 
-    pub async fn execute(&self, request: CancelJobRequest) -> Result<CancelJobResponse, CancelJobError> {
+    pub async fn execute(
+        &self,
+        tenant_id: Uuid,
+        request: CancelJobRequest,
+    ) -> Result<CancelJobResponse, CancelJobError> {
         // Find the job
-        let mut job = self.job_repository
-            .find_by_id(request.job_id)
+        let mut job = self
+            .job_repository
+            .find_by_id(tenant_id, request.job_id)
             .await?
             .ok_or(CancelJobError::JobNotFound(request.job_id))?;
 
         // Check if job can be cancelled
         if !job.is_active() {
-            return Err(CancelJobError::JobNotCancellable(
-                format!("Job is in {:?} state and cannot be cancelled", job.status())
-            ));
+            return Err(CancelJobError::JobNotCancellable(format!(
+                "Job is in {:?} state and cannot be cancelled",
+                job.status()
+            )));
         }
 
         // Try to remove from queue if it's still pending

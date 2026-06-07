@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::application::use_cases::{
@@ -6,7 +7,7 @@ use crate::application::use_cases::{
 };
 use crate::domain::entities::processing_job::{JobResult, JobType, ProcessingJob};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct JobStatusDto {
     pub job_id: Uuid,
     pub file_id: Uuid,
@@ -23,21 +24,22 @@ pub struct JobStatusDto {
     pub is_terminal: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct JobTypeDto {
     pub type_name: String,
     pub url: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct JobResultDto {
     pub chunks_created: i32,
     pub embeddings_created: i32,
+    pub assets_created: i32,
     pub processing_time_ms: u64,
     pub extracted_text_length: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct QueueJobResponseDto {
     pub job_id: Uuid,
     pub file_id: Uuid,
@@ -46,19 +48,19 @@ pub struct QueueJobResponseDto {
     pub message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CancelJobResponseDto {
     pub job_id: Uuid,
     pub status: String,
     pub message: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ProcessUrlRequestDto {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ProcessYoutubeRequestDto {
     pub url: String,
 }
@@ -121,6 +123,7 @@ impl From<&JobResult> for JobResultDto {
         Self {
             chunks_created: result.chunks_created,
             embeddings_created: result.embeddings_created,
+            assets_created: result.assets_created,
             processing_time_ms: result.processing_time_ms,
             extracted_text_length: result.extracted_text_length,
         }

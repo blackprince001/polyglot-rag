@@ -23,10 +23,7 @@ impl std::error::Error for GetJobStatusError {}
 
 impl From<JobRepositoryError> for GetJobStatusError {
     fn from(error: JobRepositoryError) -> Self {
-        match error {
-            JobRepositoryError::NotFound(id) => GetJobStatusError::JobNotFound(id),
-            _ => GetJobStatusError::RepositoryError(error.to_string()),
-        }
+        GetJobStatusError::RepositoryError(error.to_string())
     }
 }
 
@@ -51,9 +48,14 @@ impl GetJobStatusUseCase {
         Self { job_repository }
     }
 
-    pub async fn execute(&self, request: GetJobStatusRequest) -> Result<GetJobStatusResponse, GetJobStatusError> {
-        let job = self.job_repository
-            .find_by_id(request.job_id)
+    pub async fn execute(
+        &self,
+        tenant_id: Uuid,
+        request: GetJobStatusRequest,
+    ) -> Result<GetJobStatusResponse, GetJobStatusError> {
+        let job = self
+            .job_repository
+            .find_by_id(tenant_id, request.job_id)
             .await?
             .ok_or(GetJobStatusError::JobNotFound(request.job_id))?;
 
@@ -64,9 +66,13 @@ impl GetJobStatusUseCase {
         })
     }
 
-    pub async fn get_jobs_for_file(&self, file_id: Uuid) -> Result<Vec<ProcessingJob>, GetJobStatusError> {
+    pub async fn get_jobs_for_file(
+        &self,
+        tenant_id: Uuid,
+        file_id: Uuid,
+    ) -> Result<Vec<ProcessingJob>, GetJobStatusError> {
         self.job_repository
-            .find_by_file_id(file_id)
+            .find_by_file_id(tenant_id, file_id)
             .await
             .map_err(GetJobStatusError::from)
     }

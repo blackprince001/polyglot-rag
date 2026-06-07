@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use diesel::prelude::*;
+use diesel::sql_types::{BigInt, Double, Uuid as SqlUuid};
 use pgvector::Vector;
+use pgvector::sql_types::Vector as SqlVector;
 use uuid::Uuid;
 
 use crate::domain::entities::Embedding;
@@ -22,24 +24,20 @@ impl PostgresEmbeddingRepository {
     }
 }
 
+/// Row shape returned by the raw pgvector similarity queries.
+#[derive(QueryableByName)]
+struct SimRow {
+    #[diesel(sql_type = SqlUuid)]
+    chunk_id: Uuid,
+    #[diesel(sql_type = Double)]
+    similarity: f64,
+}
+
 #[async_trait]
 impl EmbeddingRepository for PostgresEmbeddingRepository {
-    async fn save(&self, embedding_entity: &Embedding) -> Result<Uuid, EmbeddingRepositoryError> {
-        let mut conn = get_connection_from_pool(&self.pool)
-            .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
-
-        let new_embedding = NewEmbeddingModel::from(embedding_entity);
-
-        let inserted_embedding: EmbeddingModel = diesel::insert_into(embeddings)
-            .values(&new_embedding)
-            .get_result(&mut conn)
-            .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
-
-        Ok(inserted_embedding.id)
-    }
-
     async fn save_batch(
         &self,
+        tenant: Uuid,
         embedding_entities: &[Embedding],
     ) -> Result<Vec<Uuid>, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
@@ -47,7 +45,7 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
 
         let new_embeddings: Vec<NewEmbeddingModel> = embedding_entities
             .iter()
-            .map(NewEmbeddingModel::from)
+            .map(|e| NewEmbeddingModel::for_tenant(tenant, e))
             .collect();
 
         let inserted_embeddings: Vec<EmbeddingModel> = diesel::insert_into(embeddings)
@@ -60,13 +58,15 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
 
     async fn find_by_id(
         &self,
+        tenant: Uuid,
         embedding_id: Uuid,
     ) -> Result<Option<Embedding>, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
         let result = embeddings
-            .find(embedding_id)
+            .filter(id.eq(embedding_id))
+            .filter(tenant_id.eq(tenant))
             .select(EmbeddingModel::as_select())
             .first::<EmbeddingModel>(&mut conn)
             .optional()
@@ -75,7 +75,7 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
         match result {
             Some(model) => {
                 let domain_embedding = Embedding::try_from(model)
-                    .map_err(|e| EmbeddingRepositoryError::ValidationError(e))?;
+                    .map_err(EmbeddingRepositoryError::ValidationError)?;
                 Ok(Some(domain_embedding))
             }
             None => Ok(None),
@@ -84,13 +84,15 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
 
     async fn find_by_chunk_id(
         &self,
-        chunk_id: Uuid,
+        tenant: Uuid,
+        chunk_id_param: Uuid,
     ) -> Result<Option<Embedding>, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
         let result = embeddings
-            .filter(content_chunk_id.eq(chunk_id))
+            .filter(content_chunk_id.eq(chunk_id_param))
+            .filter(tenant_id.eq(tenant))
             .select(EmbeddingModel::as_select())
             .first::<EmbeddingModel>(&mut conn)
             .optional()
@@ -99,7 +101,7 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
         match result {
             Some(model) => {
                 let domain_embedding = Embedding::try_from(model)
-                    .map_err(|e| EmbeddingRepositoryError::ValidationError(e))?;
+                    .map_err(EmbeddingRepositoryError::ValidationError)?;
                 Ok(Some(domain_embedding))
             }
             None => Ok(None),
@@ -108,6 +110,7 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
 
     async fn find_by_file_id(
         &self,
+        tenant: Uuid,
         file_id_param: Uuid,
     ) -> Result<Vec<Embedding>, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
@@ -120,14 +123,15 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
                 chunks_dsl::content_chunks.on(content_chunk_id.eq(chunks_dsl::id.nullable())),
             )
             .filter(chunks_dsl::file_id.eq(file_id_param))
+            .filter(tenant_id.eq(tenant))
             .select(EmbeddingModel::as_select())
             .load::<EmbeddingModel>(&mut conn)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
         let mut domain_embeddings = Vec::new();
         for model in models {
-            let domain_embedding = Embedding::try_from(model)
-                .map_err(|e| EmbeddingRepositoryError::ValidationError(e))?;
+            let domain_embedding =
+                Embedding::try_from(model).map_err(EmbeddingRepositoryError::ValidationError)?;
             domain_embeddings.push(domain_embedding);
         }
 
@@ -136,6 +140,7 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
 
     async fn similarity_search(
         &self,
+        tenant: Uuid,
         query_vector: &Vector,
         limit: i32,
         similarity_threshold: Option<f32>,
@@ -143,45 +148,40 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
-        // This is a simplified version - in a real implementation, you'd use pgvector's similarity functions
-        let models = embeddings
-            .filter(embedding.is_not_null())
-            .limit(limit.into())
-            .select(EmbeddingModel::as_select())
-            .load::<EmbeddingModel>(&mut conn)
+        // Cosine similarity = 1 - cosine distance (`<=>`). No threshold => -1.0
+        // passes everything (cosine similarity is bounded to [-1, 1]).
+        let threshold = similarity_threshold.unwrap_or(-1.0) as f64;
+
+        let sql = "SELECT content_chunk_id AS chunk_id, \
+                          (1 - (embedding <=> $1)) AS similarity \
+                   FROM embeddings \
+                   WHERE tenant_id = $3 \
+                     AND embedding IS NOT NULL \
+                     AND content_chunk_id IS NOT NULL \
+                     AND (1 - (embedding <=> $1)) >= $2 \
+                   ORDER BY embedding <=> $1 \
+                   LIMIT $4";
+
+        let rows = diesel::sql_query(sql)
+            .bind::<SqlVector, _>(query_vector.clone())
+            .bind::<Double, _>(threshold)
+            .bind::<SqlUuid, _>(tenant)
+            .bind::<BigInt, _>(limit as i64)
+            .load::<SimRow>(&mut conn)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
-        let mut results = Vec::new();
-        for model in models {
-            if let (Some(emb_vector), Some(chunk_id)) = (&model.embedding, model.content_chunk_id) {
-                // Calculate cosine similarity (simplified)
-                let similarity_score = calculate_cosine_similarity(query_vector, emb_vector);
-
-                if let Some(threshold) = similarity_threshold {
-                    if similarity_score < threshold {
-                        continue;
-                    }
-                }
-
-                let domain_embedding = Embedding::try_from(model)
-                    .map_err(|e| EmbeddingRepositoryError::ValidationError(e))?;
-
-                results.push(SimilaritySearchResult {
-                    embedding: domain_embedding,
-                    similarity_score,
-                    chunk_id,
-                });
-            }
-        }
-
-        // Sort by similarity score (descending)
-        results.sort_by(|a, b| b.similarity_score.partial_cmp(&a.similarity_score).unwrap());
-
-        Ok(results)
+        Ok(rows
+            .into_iter()
+            .map(|r| SimilaritySearchResult {
+                chunk_id: r.chunk_id,
+                similarity_score: r.similarity as f32,
+            })
+            .collect())
     }
 
     async fn similarity_search_by_file(
         &self,
+        tenant: Uuid,
         query_vector: &Vector,
         file_id_param: Uuid,
         limit: i32,
@@ -190,87 +190,78 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
-        use crate::infrastructure::database::schema::content_chunks::dsl as chunks_dsl;
+        let threshold = similarity_threshold.unwrap_or(-1.0) as f64;
 
-        // Join with content_chunks to filter by file_id
-        let models = embeddings
-            .inner_join(
-                chunks_dsl::content_chunks.on(content_chunk_id.eq(chunks_dsl::id.nullable())),
-            )
-            .filter(chunks_dsl::file_id.eq(file_id_param))
-            .filter(embedding.is_not_null())
-            .limit(limit.into())
-            .select(EmbeddingModel::as_select())
-            .load::<EmbeddingModel>(&mut conn)
+        let sql = "SELECT e.content_chunk_id AS chunk_id, \
+                          (1 - (e.embedding <=> $1)) AS similarity \
+                   FROM embeddings e \
+                   JOIN content_chunks c ON c.id = e.content_chunk_id \
+                   WHERE e.tenant_id = $3 \
+                     AND c.file_id = $5 \
+                     AND e.embedding IS NOT NULL \
+                     AND (1 - (e.embedding <=> $1)) >= $2 \
+                   ORDER BY e.embedding <=> $1 \
+                   LIMIT $4";
+
+        let rows = diesel::sql_query(sql)
+            .bind::<SqlVector, _>(query_vector.clone())
+            .bind::<Double, _>(threshold)
+            .bind::<SqlUuid, _>(tenant)
+            .bind::<BigInt, _>(limit as i64)
+            .bind::<SqlUuid, _>(file_id_param)
+            .load::<SimRow>(&mut conn)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
-        let mut results = Vec::new();
-        for model in models {
-            if let (Some(emb_vector), Some(chunk_id)) = (&model.embedding, model.content_chunk_id) {
-                // Calculate cosine similarity
-                let similarity_score = calculate_cosine_similarity(query_vector, emb_vector);
-
-                if let Some(threshold) = similarity_threshold {
-                    if similarity_score < threshold {
-                        continue;
-                    }
-                }
-
-                let domain_embedding = Embedding::try_from(model)
-                    .map_err(|e| EmbeddingRepositoryError::ValidationError(e))?;
-
-                results.push(SimilaritySearchResult {
-                    embedding: domain_embedding,
-                    similarity_score,
-                    chunk_id,
-                });
-            }
-        }
-
-        // Sort by similarity score (descending)
-        results.sort_by(|a, b| b.similarity_score.partial_cmp(&a.similarity_score).unwrap());
-
-        Ok(results)
+        Ok(rows
+            .into_iter()
+            .map(|r| SimilaritySearchResult {
+                chunk_id: r.chunk_id,
+                similarity_score: r.similarity as f32,
+            })
+            .collect())
     }
 
-    // async fn update(&self, embedding_entity: &Embedding) -> Result<(), EmbeddingRepositoryError> {
-    //     let mut conn = get_connection_from_pool(&self.pool)
-    //         .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
-
-    //     let update_model = NewEmbeddingModel::from(embedding_entity);
-
-    //     diesel::update(embeddings.find(embedding_entity.id()))
-    //         .set(&update_model)
-    //         .execute(&mut conn)
-    //         .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
-
-    //     Ok(())
-    // }
-
-    async fn delete(&self, embedding_id: Uuid) -> Result<bool, EmbeddingRepositoryError> {
+    async fn delete(
+        &self,
+        tenant: Uuid,
+        embedding_id: Uuid,
+    ) -> Result<bool, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
-        let deleted_count = diesel::delete(embeddings.find(embedding_id))
-            .execute(&mut conn)
-            .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
+        let deleted_count = diesel::delete(
+            embeddings
+                .filter(id.eq(embedding_id))
+                .filter(tenant_id.eq(tenant)),
+        )
+        .execute(&mut conn)
+        .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(deleted_count > 0)
     }
 
-    async fn delete_by_chunk_id(&self, chunk_id: Uuid) -> Result<bool, EmbeddingRepositoryError> {
+    async fn delete_by_chunk_id(
+        &self,
+        tenant: Uuid,
+        chunk_id_param: Uuid,
+    ) -> Result<bool, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
-        let deleted_count = diesel::delete(embeddings.filter(content_chunk_id.eq(chunk_id)))
-            .execute(&mut conn)
-            .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
+        let deleted_count = diesel::delete(
+            embeddings
+                .filter(content_chunk_id.eq(chunk_id_param))
+                .filter(tenant_id.eq(tenant)),
+        )
+        .execute(&mut conn)
+        .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(deleted_count > 0)
     }
 
     async fn delete_by_file_id(
         &self,
+        tenant: Uuid,
         file_id_param: Uuid,
     ) -> Result<i64, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
@@ -278,9 +269,9 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
 
         use crate::infrastructure::database::schema::content_chunks::dsl as chunks_dsl;
 
-        // Use a subquery to find embeddings that belong to chunks of the specified file
         let chunk_ids: Vec<Uuid> = chunks_dsl::content_chunks
             .filter(chunks_dsl::file_id.eq(file_id_param))
+            .filter(chunks_dsl::tenant_id.eq(tenant))
             .select(chunks_dsl::id)
             .load::<Uuid>(&mut conn)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
@@ -289,55 +280,25 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
             return Ok(0);
         }
 
-        // Delete embeddings that belong to those chunks
-        let deleted_count = diesel::delete(embeddings.filter(content_chunk_id.eq_any(chunk_ids)))
-            .execute(&mut conn)
-            .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
+        let deleted_count = diesel::delete(
+            embeddings
+                .filter(content_chunk_id.eq_any(chunk_ids))
+                .filter(tenant_id.eq(tenant)),
+        )
+        .execute(&mut conn)
+        .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(deleted_count as i64)
     }
 
-    async fn count(&self) -> Result<i64, EmbeddingRepositoryError> {
+    async fn count(&self, tenant: Uuid) -> Result<i64, EmbeddingRepositoryError> {
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
         embeddings
+            .filter(tenant_id.eq(tenant))
             .count()
             .get_result(&mut conn)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))
     }
-
-    // async fn count_by_model(
-    //     &self,
-    //     model_name_param: &str,
-    // ) -> Result<i64, EmbeddingRepositoryError> {
-    //     let mut conn = get_connection_from_pool(&self.pool)
-    //         .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
-
-    //     embeddings
-    //         .filter(model_name.eq(model_name_param))
-    //         .count()
-    //         .get_result(&mut conn)
-    //         .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))
-    // }
-}
-
-// Helper function to calculate cosine similarity
-fn calculate_cosine_similarity(a: &Vector, b: &Vector) -> f32 {
-    let a_slice = a.as_slice();
-    let b_slice = b.as_slice();
-
-    if a_slice.len() != b_slice.len() {
-        return 0.0;
-    }
-
-    let dot_product: f32 = a_slice.iter().zip(b_slice.iter()).map(|(x, y)| x * y).sum();
-    let norm_a: f32 = a_slice.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let norm_b: f32 = b_slice.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-    if norm_a == 0.0 || norm_b == 0.0 {
-        return 0.0;
-    }
-
-    dot_product / (norm_a * norm_b)
 }

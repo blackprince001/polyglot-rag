@@ -9,11 +9,11 @@ impl FileHash {
         if hash.len() != 64 {
             return Err("Hash must be 64 characters long (SHA-256)".to_string());
         }
-        
+
         if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err("Hash must contain only hexadecimal characters".to_string());
         }
-        
+
         Ok(Self(hash.to_lowercase()))
     }
 

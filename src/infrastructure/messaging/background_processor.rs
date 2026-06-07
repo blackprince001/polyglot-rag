@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use crate::application::ports::document_extractor::DocumentExtractor;
 use crate::application::ports::document_extractor::ExtractionOptions;
-use crate::application::ports::embedding_provider::BatchEmbeddingRequest;
-use crate::application::ports::embedding_provider::EmbeddingProvider;
 use crate::application::ports::file_storage::FileStorage;
-use crate::application::services::DocumentProcessorService;
+use crate::application::services::{DocumentProcessorService, EmbeddingService};
 use crate::domain::entities::processing_job::{JobResult, JobType, ProcessingJob};
 use crate::domain::repositories::{
     ChunkRepository, EmbeddingRepository, FileRepository, JobRepository,
@@ -21,7 +19,7 @@ pub struct BackgroundProcessor {
     file_repository: Arc<dyn FileRepository>,
     document_processor: Arc<DocumentProcessorService>,
     document_extractor: Arc<dyn DocumentExtractor>,
-    embedding_provider: Arc<dyn EmbeddingProvider>,
+    embedding_service: Arc<EmbeddingService>,
     file_storage: Arc<dyn FileStorage>,
     chunk_repository: Arc<dyn ChunkRepository>,
     embedding_repository: Arc<dyn EmbeddingRepository>,
@@ -36,7 +34,7 @@ impl BackgroundProcessor {
         file_repository: Arc<dyn FileRepository>,
         document_processor: Arc<DocumentProcessorService>,
         document_extractor: Arc<dyn DocumentExtractor>,
-        embedding_provider: Arc<dyn EmbeddingProvider>,
+        embedding_service: Arc<EmbeddingService>,
         file_storage: Arc<dyn FileStorage>,
         chunk_repository: Arc<dyn ChunkRepository>,
         embedding_repository: Arc<dyn EmbeddingRepository>,
@@ -47,7 +45,7 @@ impl BackgroundProcessor {
             file_repository,
             document_processor,
             document_extractor,
-            embedding_provider,
+            embedding_service,
             file_storage,
             chunk_repository,
             embedding_repository,
@@ -157,6 +155,8 @@ impl BackgroundProcessor {
     }
 
     async fn process_file_job(&self, job: &mut ProcessingJob) -> Result<JobResult, String> {
+        let tenant = job.tenant_id();
+
         // Update progress
         let _ = job.update_progress(0.1, Some("Loading file...".to_string()));
         let _ = self.job_repository.update(job).await;
@@ -167,7 +167,7 @@ impl BackgroundProcessor {
         // Get the file - this should exist if upload was successful
         let mut file = self
             .file_repository
-            .find_by_id(job.file_id())
+            .find_by_id(tenant, job.file_id())
             .await
             .map_err(|e| format!("Failed to find file: {}", e))?
             .ok_or_else(|| format!("File not found in database: {}", job.file_id()))?;
@@ -180,7 +180,7 @@ impl BackgroundProcessor {
                 e
             );
         } else {
-            if let Err(e) = self.file_repository.update(&file).await {
+            if let Err(e) = self.file_repository.update(tenant, &file).await {
                 eprintln!(
                     "Failed to update file processing status for {}: {}",
                     job.file_id(),
@@ -194,9 +194,9 @@ impl BackgroundProcessor {
         let _ = self.job_repository.update(job).await;
 
         // Process the document
-        let (chunks_created, embeddings_created) = self
+        let outcome = self
             .document_processor
-            .process_file(&file, ExtractionOptions::default())
+            .process_file(tenant, &file, ExtractionOptions::default())
             .await
             .map_err(|e| {
                 // Update file status to failed
@@ -221,7 +221,7 @@ impl BackgroundProcessor {
                 e
             );
         } else {
-            if let Err(e) = self.file_repository.update(&file).await {
+            if let Err(e) = self.file_repository.update(tenant, &file).await {
                 eprintln!(
                     "Failed to update file processing status to completed for {}: {}",
                     job.file_id(),
@@ -231,8 +231,9 @@ impl BackgroundProcessor {
         }
 
         Ok(JobResult {
-            chunks_created,
-            embeddings_created,
+            chunks_created: outcome.chunks_created,
+            embeddings_created: outcome.embeddings_created,
+            assets_created: outcome.assets_created,
             processing_time_ms: 0,    // Will be calculated by the job
             extracted_text_length: 0, // Could be calculated if needed
         })
@@ -243,6 +244,8 @@ impl BackgroundProcessor {
         job: &mut ProcessingJob,
         url: &str,
     ) -> Result<JobResult, String> {
+        let tenant = job.tenant_id();
+
         // Update progress
         let _ = job.update_progress(0.1, Some("Extracting content from URL...".to_string()));
         let _ = self.job_repository.update(job).await;
@@ -250,7 +253,7 @@ impl BackgroundProcessor {
         // Get the file and update its processing status
         let mut file = self
             .file_repository
-            .find_by_id(job.file_id())
+            .find_by_id(tenant, job.file_id())
             .await
             .map_err(|e| format!("Failed to find file: {}", e))?
             .ok_or_else(|| format!("File not found in database: {}", job.file_id()))?;
@@ -263,7 +266,7 @@ impl BackgroundProcessor {
                 e
             );
         } else {
-            if let Err(e) = self.file_repository.update(&file).await {
+            if let Err(e) = self.file_repository.update(tenant, &file).await {
                 eprintln!(
                     "Failed to update file processing status for {}: {}",
                     job.file_id(),
@@ -304,7 +307,7 @@ impl BackgroundProcessor {
 
         // Create chunks from extracted text
         let chunks = self
-            .create_chunks_from_text(job.file_id(), &extracted_content.text)
+            .create_chunks_from_text(job.file_id(), &extracted_content.full_text)
             .map_err(|e| {
                 // Update file status to failed
                 if let Err(update_err) = file.fail_processing(e.clone()) {
@@ -322,7 +325,7 @@ impl BackgroundProcessor {
         // Save chunks and get their database-generated IDs
         let chunk_ids = self
             .chunk_repository
-            .save_batch(&chunks)
+            .save_batch(tenant, &chunks)
             .await
             .map_err(|e| {
                 // Update file status to failed
@@ -358,13 +361,14 @@ impl BackgroundProcessor {
         let _ = job.update_progress(0.6, Some("Generating embeddings...".to_string()));
         let _ = self.job_repository.update(job).await;
 
-        // Generate embeddings
+        // Generate embeddings via the shared service (no per-job batching copy)
         let embeddings = self
+            .embedding_service
             .generate_embeddings_for_chunks(&chunks_with_ids)
             .await
             .map_err(|e| {
                 // Update file status to failed
-                if let Err(update_err) = file.fail_processing(e.clone()) {
+                if let Err(update_err) = file.fail_processing(e.to_string()) {
                     eprintln!(
                         "Failed to update file status to failed for {}: {}",
                         job.file_id(),
@@ -373,12 +377,12 @@ impl BackgroundProcessor {
                 } else {
                     eprintln!("File {} embedding generation failed: {}", job.file_id(), e);
                 }
-                e
+                format!("Embedding generation failed: {}", e)
             })?;
 
         // Save embeddings
         self.embedding_repository
-            .save_batch(&embeddings)
+            .save_batch(tenant, &embeddings)
             .await
             .map_err(|e| {
                 // Update file status to failed
@@ -402,7 +406,7 @@ impl BackgroundProcessor {
                 e
             );
         } else {
-            if let Err(e) = self.file_repository.update(&file).await {
+            if let Err(e) = self.file_repository.update(tenant, &file).await {
                 eprintln!(
                     "Failed to update file processing status to completed for {}: {}",
                     job.file_id(),
@@ -414,8 +418,9 @@ impl BackgroundProcessor {
         Ok(JobResult {
             chunks_created: chunks_with_ids.len() as i32,
             embeddings_created: embeddings.len() as i32,
+            assets_created: 0,
             processing_time_ms: 0,
-            extracted_text_length: extracted_content.text.len(),
+            extracted_text_length: extracted_content.full_text.len(),
         })
     }
 
@@ -424,6 +429,8 @@ impl BackgroundProcessor {
         job: &mut ProcessingJob,
         url: &str,
     ) -> Result<JobResult, String> {
+        let tenant = job.tenant_id();
+
         // Update progress
         let _ = job.update_progress(0.1, Some("Fetching YouTube transcript...".to_string()));
         let _ = self.job_repository.update(job).await;
@@ -447,12 +454,12 @@ impl BackgroundProcessor {
         let _ = self.job_repository.update(job).await;
 
         // Create chunks from transcript
-        let chunks = self.create_chunks_from_text(job.file_id(), &extracted_content.text)?;
+        let chunks = self.create_chunks_from_text(job.file_id(), &extracted_content.full_text)?;
 
         // Save chunks and get their database-generated IDs
         let chunk_ids = self
             .chunk_repository
-            .save_batch(&chunks)
+            .save_batch(tenant, &chunks)
             .await
             .map_err(|e| format!("Failed to save chunks: {}", e))?;
 
@@ -476,22 +483,25 @@ impl BackgroundProcessor {
         let _ = job.update_progress(0.6, Some("Generating embeddings...".to_string()));
         let _ = self.job_repository.update(job).await;
 
-        // Generate embeddings
+        // Generate embeddings via the shared service
         let embeddings = self
+            .embedding_service
             .generate_embeddings_for_chunks(&chunks_with_ids)
-            .await?;
+            .await
+            .map_err(|e| format!("Embedding generation failed: {}", e))?;
 
         // Save embeddings
         self.embedding_repository
-            .save_batch(&embeddings)
+            .save_batch(tenant, &embeddings)
             .await
             .map_err(|e| format!("Failed to save embeddings: {}", e))?;
 
         Ok(JobResult {
             chunks_created: chunks_with_ids.len() as i32,
             embeddings_created: embeddings.len() as i32,
+            assets_created: 0,
             processing_time_ms: 0,
-            extracted_text_length: extracted_content.text.len(),
+            extracted_text_length: extracted_content.full_text.len(),
         })
     }
 
@@ -531,51 +541,6 @@ impl BackgroundProcessor {
         Ok(chunks)
     }
 
-    async fn generate_embeddings_for_chunks(
-        &self,
-        chunks: &[crate::domain::entities::ContentChunk],
-    ) -> Result<Vec<crate::domain::entities::Embedding>, String> {
-        let mut embeddings = Vec::new();
-        let (model_name, model_version) = self.embedding_provider.model_info();
-
-        const BATCH_SIZE: usize = 10;
-
-        for chunk_batch in chunks.chunks(BATCH_SIZE) {
-            let texts: Vec<String> = chunk_batch
-                .iter()
-                .map(|chunk| chunk.chunk_text().to_string())
-                .collect();
-
-            let batch_request = BatchEmbeddingRequest {
-                texts,
-                model_name: Some(model_name.clone()),
-                model_version: model_version.clone(),
-            };
-
-            let batch_response = self
-                .embedding_provider
-                .generate_embeddings(batch_request)
-                .await
-                .map_err(|e| format!("Embedding generation failed: {}", e))?;
-
-            for (chunk, embedding_vector) in
-                chunk_batch.iter().zip(batch_response.embeddings.iter())
-            {
-                let embedding = crate::domain::entities::Embedding::new(
-                    chunk.id(),
-                    batch_response.model_name.clone(),
-                    batch_response.model_version.clone(),
-                    None,
-                    embedding_vector.clone(),
-                );
-
-                embeddings.push(embedding);
-            }
-        }
-
-        Ok(embeddings)
-    }
-
     fn clone_for_worker(&self) -> Self {
         Self {
             job_receiver: self.job_receiver.clone(),
@@ -583,7 +548,7 @@ impl BackgroundProcessor {
             file_repository: self.file_repository.clone(),
             document_processor: self.document_processor.clone(),
             document_extractor: self.document_extractor.clone(),
-            embedding_provider: self.embedding_provider.clone(),
+            embedding_service: self.embedding_service.clone(),
             file_storage: self.file_storage.clone(),
             chunk_repository: self.chunk_repository.clone(),
             embedding_repository: self.embedding_repository.clone(),

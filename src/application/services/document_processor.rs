@@ -2,12 +2,15 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::application::ports::{
-    DocumentExtractor, EmbeddingProvider,
-    document_extractor::{ExtractedContent, ExtractionOptions},
-    embedding_provider::BatchEmbeddingRequest,
+    DocumentExtractor, FileStorage,
+    document_extractor::{ExtractedDocument, ExtractionOptions, PendingAsset},
+    file_storage::storage_key,
 };
-use crate::domain::entities::{ContentChunk, Embedding, File};
-use crate::domain::repositories::{ChunkRepository, EmbeddingRepository, FileRepository};
+use crate::application::services::EmbeddingService;
+use crate::domain::entities::{Asset, AssetType, ContentChunk, File};
+use crate::domain::repositories::{
+    AssetRepository, ChunkRepository, EmbeddingRepository, FileRepository,
+};
 
 #[derive(Debug, Clone)]
 pub struct ChunkingConfig {
@@ -36,17 +39,25 @@ impl std::fmt::Display for DocumentProcessingError {
 
 impl std::error::Error for DocumentProcessingError {}
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProcessedDocument {
+    pub chunks_created: i32,
+    pub embeddings_created: i32,
+    pub assets_created: i32,
+}
+
 pub struct DocumentProcessorService {
     document_extractor: Arc<dyn DocumentExtractor>,
-    embedding_provider: Arc<dyn EmbeddingProvider>,
+    embedding_service: Arc<EmbeddingService>,
     chunk_repository: Arc<dyn ChunkRepository>,
     embedding_repository: Arc<dyn EmbeddingRepository>,
     file_repository: Arc<dyn FileRepository>,
+    asset_repository: Arc<dyn AssetRepository>,
+    file_storage: Arc<dyn FileStorage>,
     chunking_config: ChunkingConfig,
 }
 
 impl ChunkingConfig {
-    /// Creates a new ChunkingConfig from environment variables with sensible defaults
     pub fn from_env() -> Self {
         Self {
             chunk_size: std::env::var("CHUNK_SIZE")
@@ -67,7 +78,6 @@ impl ChunkingConfig {
         }
     }
 
-    /// Creates a new ChunkingConfig with custom values
     pub fn new(
         chunk_size: usize,
         chunk_overlap: usize,
@@ -98,75 +108,73 @@ impl ChunkingConfig {
 }
 
 impl DocumentProcessorService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         document_extractor: Arc<dyn DocumentExtractor>,
-        embedding_provider: Arc<dyn EmbeddingProvider>,
+        embedding_service: Arc<EmbeddingService>,
         chunk_repository: Arc<dyn ChunkRepository>,
         embedding_repository: Arc<dyn EmbeddingRepository>,
         file_repository: Arc<dyn FileRepository>,
+        asset_repository: Arc<dyn AssetRepository>,
+        file_storage: Arc<dyn FileStorage>,
     ) -> Self {
         let chunking_config = ChunkingConfig::from_env();
         Self::new_with_config(
             document_extractor,
-            embedding_provider,
+            embedding_service,
             chunk_repository,
             embedding_repository,
             file_repository,
+            asset_repository,
+            file_storage,
             chunking_config,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_config(
         document_extractor: Arc<dyn DocumentExtractor>,
-        embedding_provider: Arc<dyn EmbeddingProvider>,
+        embedding_service: Arc<EmbeddingService>,
         chunk_repository: Arc<dyn ChunkRepository>,
         embedding_repository: Arc<dyn EmbeddingRepository>,
         file_repository: Arc<dyn FileRepository>,
+        asset_repository: Arc<dyn AssetRepository>,
+        file_storage: Arc<dyn FileStorage>,
         chunking_config: ChunkingConfig,
     ) -> Self {
         // Validate configuration
-        if let Err(e) = chunking_config.validate() {
+        let chunking_config = if let Err(e) = chunking_config.validate() {
             eprintln!("Warning: Invalid chunking configuration: {}", e);
             eprintln!("Using default configuration instead");
-            let default_config = ChunkingConfig::new(578, 102, None, 10);
-            Self {
-                document_extractor,
-                embedding_provider,
-                chunk_repository,
-                embedding_repository,
-                file_repository,
-                chunking_config: default_config,
-            }
+            ChunkingConfig::new(578, 102, None, 10)
         } else {
-            Self {
-                document_extractor,
-                embedding_provider,
-                chunk_repository,
-                embedding_repository,
-                file_repository,
-                chunking_config,
-            }
+            chunking_config
+        };
+
+        Self {
+            document_extractor,
+            embedding_service,
+            chunk_repository,
+            embedding_repository,
+            file_repository,
+            asset_repository,
+            file_storage,
+            chunking_config,
         }
     }
 
-    /// Sanitizes text to ensure it's safe for database storage
-    /// Removes null bytes and other problematic characters that can cause UTF-8 encoding issues
     fn sanitize_text_for_database(text: &str) -> String {
         text.chars()
             .filter(|c| *c != '\0') // Remove null bytes
             .collect::<String>()
     }
 
-    /// Returns the current chunking configuration
-    pub fn chunking_config(&self) -> &ChunkingConfig {
-        &self.chunking_config
-    }
-
     pub async fn process_file(
         &self,
+        tenant_id: Uuid,
         file: &File,
         extraction_options: ExtractionOptions,
-    ) -> Result<(i32, i32), DocumentProcessingError> {
+    ) -> Result<ProcessedDocument, DocumentProcessingError> {
         println!(
             "Processing file: {} with chunking config: {:?}",
             file.file_name(),
@@ -177,7 +185,13 @@ impl DocumentProcessorService {
             .extract_text_from_file(file, extraction_options)
             .await?;
 
-        let chunks = self.create_chunks(file.id(), &extracted_content.text)?;
+        let chunks = self.create_chunks(file.id(), &extracted_content.full_text)?;
+
+        // Persist any embedded assets (images, etc). Consumes `extracted_content`.
+        let pending_assets = extracted_content.into_all_pending_assets();
+        let assets_created = self
+            .persist_assets(tenant_id, file.id(), pending_assets)
+            .await?;
 
         println!(
             "Created {} chunks for file: {}",
@@ -185,7 +199,7 @@ impl DocumentProcessorService {
             file.file_name()
         );
 
-        match self.file_repository.find_by_id(file.id()).await {
+        match self.file_repository.find_by_id(tenant_id, file.id()).await {
             Ok(Some(_verified_file)) => {}
             Ok(None) => {
                 return Err(DocumentProcessingError::RepositoryError(format!(
@@ -204,7 +218,7 @@ impl DocumentProcessorService {
         // Save chunks and get their database-generated IDs
         let chunk_ids = self
             .chunk_repository
-            .save_batch(&chunks)
+            .save_batch(tenant_id, &chunks)
             .await
             .map_err(|e| DocumentProcessingError::RepositoryError(e.to_string()))?;
 
@@ -225,22 +239,78 @@ impl DocumentProcessorService {
         }
 
         let embeddings = self
+            .embedding_service
             .generate_embeddings_for_chunks(&chunks_with_ids)
-            .await?;
+            .await
+            .map_err(|e| DocumentProcessingError::EmbeddingError(e.to_string()))?;
 
         self.embedding_repository
-            .save_batch(&embeddings)
+            .save_batch(tenant_id, &embeddings)
             .await
             .map_err(|e| DocumentProcessingError::RepositoryError(e.to_string()))?;
 
-        Ok((chunks.len() as i32, embeddings.len() as i32))
+        Ok(ProcessedDocument {
+            chunks_created: chunks.len() as i32,
+            embeddings_created: embeddings.len() as i32,
+            assets_created,
+        })
+    }
+
+    async fn persist_assets(
+        &self,
+        tenant_id: Uuid,
+        file_id: Uuid,
+        pending: Vec<PendingAsset>,
+    ) -> Result<i32, DocumentProcessingError> {
+        if pending.is_empty() {
+            return Ok(0);
+        }
+
+        let mut assets = Vec::with_capacity(pending.len());
+        for asset in pending {
+            let asset_id = Uuid::new_v4();
+            let label = asset.label.clone().unwrap_or_else(|| asset_id.to_string());
+
+            self.file_storage
+                .store_file(
+                    tenant_id,
+                    asset_id,
+                    &asset.bytes,
+                    &label,
+                    Some(&asset.content_type),
+                )
+                .await
+                .map_err(|e| {
+                    DocumentProcessingError::RepositoryError(format!("asset storage failed: {}", e))
+                })?;
+
+            assets.push(Asset::with_id(
+                asset_id,
+                tenant_id,
+                file_id,
+                AssetType::Image,
+                storage_key(tenant_id, asset_id),
+                asset.content_type,
+                asset.page_number.map(|p| p as i32),
+                asset.label,
+                asset.bytes.len() as i64,
+                chrono::Utc::now(),
+            ));
+        }
+
+        self.asset_repository
+            .save_batch(tenant_id, &assets)
+            .await
+            .map_err(|e| DocumentProcessingError::RepositoryError(e.to_string()))?;
+
+        Ok(assets.len() as i32)
     }
 
     async fn extract_text_from_file(
         &self,
         file: &File,
         extraction_options: ExtractionOptions,
-    ) -> Result<ExtractedContent, DocumentProcessingError> {
+    ) -> Result<ExtractedDocument, DocumentProcessingError> {
         self.document_extractor
             .extract_text(file, extraction_options)
             .await
@@ -314,50 +384,5 @@ impl DocumentProcessorService {
         }
 
         Ok(chunks)
-    }
-
-    async fn generate_embeddings_for_chunks(
-        &self,
-        chunks: &[ContentChunk],
-    ) -> Result<Vec<Embedding>, DocumentProcessingError> {
-        let mut embeddings = Vec::new();
-        let (model_name, model_version) = self.embedding_provider.model_info();
-
-        const BATCH_SIZE: usize = 10;
-
-        for chunk_batch in chunks.chunks(BATCH_SIZE) {
-            let texts: Vec<String> = chunk_batch
-                .iter()
-                .map(|chunk| chunk.chunk_text().to_string())
-                .collect();
-
-            let batch_request = BatchEmbeddingRequest {
-                texts,
-                model_name: Some(model_name.clone()),
-                model_version: model_version.clone(),
-            };
-
-            let batch_response = self
-                .embedding_provider
-                .generate_embeddings(batch_request)
-                .await
-                .map_err(|e| DocumentProcessingError::EmbeddingError(e.to_string()))?;
-
-            for (chunk, embedding_vector) in
-                chunk_batch.iter().zip(batch_response.embeddings.iter())
-            {
-                let embedding = Embedding::new(
-                    chunk.id(),
-                    batch_response.model_name.clone(),
-                    batch_response.model_version.clone(),
-                    None,
-                    embedding_vector.clone(),
-                );
-
-                embeddings.push(embedding);
-            }
-        }
-
-        Ok(embeddings)
     }
 }

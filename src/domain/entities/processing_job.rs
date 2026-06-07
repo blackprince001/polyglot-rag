@@ -7,6 +7,7 @@ use crate::domain::value_objects::ProcessingStatus;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessingJob {
     id: Uuid,
+    tenant_id: Uuid,
     file_id: Uuid,
     job_type: JobType,
     status: ProcessingStatus,
@@ -29,14 +30,17 @@ pub enum JobType {
 pub struct JobResult {
     pub chunks_created: i32,
     pub embeddings_created: i32,
+    #[serde(default)]
+    pub assets_created: i32,
     pub processing_time_ms: u64,
     pub extracted_text_length: usize,
 }
 
 impl ProcessingJob {
-    pub fn new_file_processing(file_id: Uuid) -> Self {
+    pub fn new_file_processing(tenant_id: Uuid, file_id: Uuid) -> Self {
         Self {
-            id: Uuid::nil(),
+            id: Uuid::new_v4(),
+            tenant_id,
             file_id,
             job_type: JobType::FileProcessing,
             status: ProcessingStatus::Pending,
@@ -49,9 +53,10 @@ impl ProcessingJob {
         }
     }
 
-    pub fn new_url_extraction(file_id: Uuid, url: String) -> Self {
+    pub fn new_url_extraction(tenant_id: Uuid, file_id: Uuid, url: String) -> Self {
         Self {
-            id: Uuid::nil(),
+            id: Uuid::new_v4(),
+            tenant_id,
             file_id,
             job_type: JobType::UrlExtraction { url },
             status: ProcessingStatus::Pending,
@@ -64,9 +69,10 @@ impl ProcessingJob {
         }
     }
 
-    pub fn new_youtube_extraction(file_id: Uuid, url: String) -> Self {
+    pub fn new_youtube_extraction(tenant_id: Uuid, file_id: Uuid, url: String) -> Self {
         Self {
-            id: Uuid::nil(),
+            id: Uuid::new_v4(),
+            tenant_id,
             file_id,
             job_type: JobType::YoutubeExtraction { url },
             status: ProcessingStatus::Pending,
@@ -82,6 +88,7 @@ impl ProcessingJob {
     /// Create a ProcessingJob from database values (for repository reconstruction)
     pub fn from_database(
         id: Uuid,
+        tenant_id: Uuid,
         file_id: Uuid,
         job_type: JobType,
         status: ProcessingStatus,
@@ -94,6 +101,7 @@ impl ProcessingJob {
     ) -> Self {
         Self {
             id,
+            tenant_id,
             file_id,
             job_type,
             status,
@@ -108,6 +116,10 @@ impl ProcessingJob {
 
     pub fn id(&self) -> Uuid {
         self.id
+    }
+
+    pub fn tenant_id(&self) -> Uuid {
+        self.tenant_id
     }
 
     pub fn file_id(&self) -> Uuid {
@@ -248,7 +260,7 @@ mod tests {
     #[test]
     fn test_job_creation() {
         let file_id = Uuid::new_v4();
-        let job = ProcessingJob::new_file_processing(file_id);
+        let job = ProcessingJob::new_file_processing(Uuid::new_v4(), file_id);
 
         assert_eq!(job.file_id(), file_id);
         assert_eq!(job.status(), &ProcessingStatus::Pending);
@@ -259,7 +271,7 @@ mod tests {
     #[test]
     fn test_job_workflow() {
         let file_id = Uuid::new_v4();
-        let mut job = ProcessingJob::new_file_processing(file_id);
+        let mut job = ProcessingJob::new_file_processing(Uuid::new_v4(), file_id);
 
         // Start processing
         assert!(job.start_processing().is_ok());
@@ -277,6 +289,7 @@ mod tests {
         let result = JobResult {
             chunks_created: 10,
             embeddings_created: 10,
+            assets_created: 0,
             processing_time_ms: 5000,
             extracted_text_length: 1000,
         };
@@ -289,7 +302,7 @@ mod tests {
     #[test]
     fn test_job_failure() {
         let file_id = Uuid::new_v4();
-        let mut job = ProcessingJob::new_file_processing(file_id);
+        let mut job = ProcessingJob::new_file_processing(Uuid::new_v4(), file_id);
 
         job.start_processing().unwrap();
         assert!(
@@ -308,7 +321,7 @@ mod tests {
     fn test_url_extraction_job() {
         let file_id = Uuid::new_v4();
         let url = "https://example.com".to_string();
-        let job = ProcessingJob::new_url_extraction(file_id, url.clone());
+        let job = ProcessingJob::new_url_extraction(Uuid::new_v4(), file_id, url.clone());
 
         if let JobType::UrlExtraction { url: job_url } = job.job_type() {
             assert_eq!(job_url, &url);

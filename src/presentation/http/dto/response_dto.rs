@@ -1,6 +1,9 @@
-use serde::Serialize;
+use std::collections::BTreeMap;
 
-#[derive(Debug, Serialize)]
+use serde::Serialize;
+use utoipa::ToSchema;
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ApiResponse<T> {
     pub success: bool,
     pub data: Option<T>,
@@ -8,7 +11,7 @@ pub struct ApiResponse<T> {
     pub timestamp: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ApiError {
     pub code: String,
     pub message: String,
@@ -39,13 +42,20 @@ impl<T> ApiResponse<T> {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct HealthResponseDto {
     pub status: String,
     pub version: String,
+    pub dependencies: BTreeMap<String, DependencyStatus>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DependencyStatus {
+    pub status: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MessageResponseDto {
     pub message: String,
 }

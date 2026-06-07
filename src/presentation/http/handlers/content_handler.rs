@@ -2,32 +2,39 @@ use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use std::sync::Arc;
 
 use crate::application::use_cases::{
-    ProcessUrlDirectUseCase, ProcessYoutubeDirectUseCase,
+    ProcessTextDirectUseCase, ProcessUrlDirectUseCase, ProcessYoutubeDirectUseCase,
+    process_text_direct::{ProcessTextDirectError, ProcessTextDirectRequest},
     process_url_direct::{ProcessUrlDirectError, ProcessUrlDirectRequest},
     process_youtube_direct::{ProcessYoutubeDirectError, ProcessYoutubeDirectRequest},
 };
 use crate::presentation::http::dto::{
-    ApiResponse, ContentProcessingResponse, ProcessUrlRequest, ProcessYoutubeRequest,
+    ApiResponse, ContentProcessingResponse, ProcessTextRequest, ProcessUrlRequest,
+    ProcessYoutubeRequest,
 };
+use crate::presentation::http::middleware::TenantContext;
 
 pub struct ContentHandler {
     process_url_use_case: Arc<ProcessUrlDirectUseCase>,
     process_youtube_use_case: Arc<ProcessYoutubeDirectUseCase>,
+    process_text_use_case: Arc<ProcessTextDirectUseCase>,
 }
 
 impl ContentHandler {
     pub fn new(
         process_url_use_case: Arc<ProcessUrlDirectUseCase>,
         process_youtube_use_case: Arc<ProcessYoutubeDirectUseCase>,
+        process_text_use_case: Arc<ProcessTextDirectUseCase>,
     ) -> Self {
         Self {
             process_url_use_case,
             process_youtube_use_case,
+            process_text_use_case,
         }
     }
 
     pub async fn process_url(
         State(handler): State<Arc<ContentHandler>>,
+        tenant: TenantContext,
         Json(request_dto): Json<ProcessUrlRequest>,
     ) -> Result<impl IntoResponse, StatusCode> {
         // Validate URL
@@ -50,7 +57,11 @@ impl ContentHandler {
         };
 
         // Execute use case
-        match handler.process_url_use_case.execute(use_case_request).await {
+        match handler
+            .process_url_use_case
+            .execute(tenant.tenant_id, use_case_request)
+            .await
+        {
             Ok(response) => {
                 let dto = ContentProcessingResponse::from(response);
                 Ok((StatusCode::ACCEPTED, Json(ApiResponse::success(dto))))
@@ -85,6 +96,7 @@ impl ContentHandler {
 
     pub async fn process_youtube(
         State(handler): State<Arc<ContentHandler>>,
+        tenant: TenantContext,
         Json(request_dto): Json<ProcessYoutubeRequest>,
     ) -> Result<impl IntoResponse, StatusCode> {
         // Validate URL
@@ -125,7 +137,7 @@ impl ContentHandler {
         // Execute use case
         match handler
             .process_youtube_use_case
-            .execute(use_case_request)
+            .execute(tenant.tenant_id, use_case_request)
             .await
         {
             Ok(response) => {
@@ -144,6 +156,65 @@ impl ContentHandler {
                         (StatusCode::INTERNAL_SERVER_ERROR, "REPOSITORY_ERROR")
                     }
                     ProcessYoutubeDirectError::QueueError(_) => {
+                        (StatusCode::INTERNAL_SERVER_ERROR, "QUEUE_ERROR")
+                    }
+                };
+
+                Ok((
+                    status,
+                    Json(ApiResponse::error(
+                        error_code.to_string(),
+                        e.to_string(),
+                        None,
+                    )),
+                ))
+            }
+        }
+    }
+
+    pub async fn process_text(
+        State(handler): State<Arc<ContentHandler>>,
+        tenant: TenantContext,
+        Json(request_dto): Json<ProcessTextRequest>,
+    ) -> Result<impl IntoResponse, StatusCode> {
+        if request_dto.text.trim().is_empty() {
+            return Ok((
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error(
+                    "EMPTY_TEXT".to_string(),
+                    "text cannot be empty".to_string(),
+                    None,
+                )),
+            ));
+        }
+
+        let use_case_request = ProcessTextDirectRequest {
+            text: request_dto.text,
+            filename: request_dto.filename,
+            auto_process: request_dto.auto_process.unwrap_or(true),
+        };
+
+        match handler
+            .process_text_use_case
+            .execute(tenant.tenant_id, use_case_request)
+            .await
+        {
+            Ok(response) => {
+                let dto = ContentProcessingResponse::from(response);
+                Ok((StatusCode::ACCEPTED, Json(ApiResponse::success(dto))))
+            }
+            Err(e) => {
+                let (status, error_code) = match e {
+                    ProcessTextDirectError::ValidationError(_) => {
+                        (StatusCode::BAD_REQUEST, "VALIDATION_ERROR")
+                    }
+                    ProcessTextDirectError::StorageError(_) => {
+                        (StatusCode::INTERNAL_SERVER_ERROR, "STORAGE_ERROR")
+                    }
+                    ProcessTextDirectError::RepositoryError(_) => {
+                        (StatusCode::INTERNAL_SERVER_ERROR, "REPOSITORY_ERROR")
+                    }
+                    ProcessTextDirectError::QueueError(_) => {
                         (StatusCode::INTERNAL_SERVER_ERROR, "QUEUE_ERROR")
                     }
                 };

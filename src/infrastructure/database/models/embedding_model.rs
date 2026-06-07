@@ -13,6 +13,7 @@ use crate::infrastructure::database::schema::embeddings;
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct EmbeddingModel {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub content_chunk_id: Option<Uuid>,
     pub embedding: Option<Vector>,
     pub model_name: String,
@@ -26,6 +27,7 @@ pub struct EmbeddingModel {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct NewEmbeddingModel {
     pub id: Option<Uuid>,
+    pub tenant_id: Uuid,
     pub content_chunk_id: Option<Uuid>,
     pub embedding: Option<Vector>,
     pub model_name: String,
@@ -34,10 +36,11 @@ pub struct NewEmbeddingModel {
     pub generation_parameters: Option<serde_json::Value>,
 }
 
-impl From<&DomainEmbedding> for NewEmbeddingModel {
-    fn from(domain_embedding: &DomainEmbedding) -> Self {
+impl NewEmbeddingModel {
+    pub fn for_tenant(tenant_id: Uuid, domain_embedding: &DomainEmbedding) -> Self {
         Self {
             id: None, // Let database generate the ID
+            tenant_id,
             content_chunk_id: Some(domain_embedding.content_chunk_id()),
             embedding: Some(domain_embedding.embedding().clone()),
             model_name: domain_embedding.model_name().to_string(),

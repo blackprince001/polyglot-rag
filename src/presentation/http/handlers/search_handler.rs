@@ -6,8 +6,12 @@ use axum::{
 };
 use std::sync::Arc;
 
-use crate::application::use_cases::{SearchContentUseCase, search_content::SearchContentRequest};
+use crate::application::use_cases::{
+    SearchContentUseCase,
+    search_content::{SearchContentError, SearchContentRequest},
+};
 use crate::presentation::http::dto::{ApiResponse, SearchRequestDto, SearchResponseDto};
+use crate::presentation::http::middleware::TenantContext;
 
 pub struct SearchHandler {
     search_use_case: Arc<SearchContentUseCase>,
@@ -20,6 +24,7 @@ impl SearchHandler {
 
     pub async fn search_content(
         State(handler): State<Arc<SearchHandler>>,
+        tenant: TenantContext,
         Query(search_params): Query<SearchRequestDto>,
     ) -> Result<impl IntoResponse, StatusCode> {
         if search_params.query.trim().is_empty() {
@@ -40,7 +45,11 @@ impl SearchHandler {
             file_id_filter: search_params.file_id,
         };
 
-        match handler.search_use_case.execute(request).await {
+        match handler
+            .search_use_case
+            .execute(tenant.tenant_id, request)
+            .await
+        {
             Ok(response) => {
                 let dto = SearchResponseDto::from(response);
                 Ok((
@@ -48,6 +57,14 @@ impl SearchHandler {
                     Json(ApiResponse::<SearchResponseDto>::success(dto)),
                 ))
             }
+            Err(SearchContentError::ValidationError(msg)) => Ok((
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error(
+                    "SEARCH_VALIDATION_FAILED".to_string(),
+                    msg,
+                    None,
+                )),
+            )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiResponse::error(

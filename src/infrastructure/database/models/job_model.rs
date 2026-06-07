@@ -15,6 +15,7 @@ use crate::infrastructure::database::schema::processing_jobs;
 #[diesel(primary_key(id))]
 pub struct JobModel {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub file_id: Uuid,
     pub job_type: String,
     pub job_data: Option<serde_json::Value>, // For storing URL or other job-specific data
@@ -31,6 +32,7 @@ pub struct JobModel {
 #[diesel(table_name = processing_jobs)]
 pub struct NewJobModel {
     pub id: Option<Uuid>,
+    pub tenant_id: Uuid,
     pub file_id: Uuid,
     pub job_type: String,
     pub job_data: Option<serde_json::Value>,
@@ -76,6 +78,7 @@ impl From<ProcessingJob> for NewJobModel {
 
         Self {
             id: None, // Let database generate the ID
+            tenant_id: job.tenant_id(),
             file_id: job.file_id(),
             job_type: job_type_str,
             job_data,
@@ -176,6 +179,7 @@ impl TryFrom<JobModel> for ProcessingJob {
         // Create the job using the from_database constructor with all actual database values
         let job = ProcessingJob::from_database(
             model.id,
+            model.tenant_id,
             model.file_id,
             job_type,
             status,

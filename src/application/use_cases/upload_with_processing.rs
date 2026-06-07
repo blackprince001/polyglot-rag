@@ -87,6 +87,7 @@ impl UploadWithProcessingUseCase {
 
     pub async fn execute(
         &self,
+        tenant_id: Uuid,
         request: UploadWithProcessingRequest,
     ) -> Result<UploadWithProcessingResponse, UploadWithProcessingError> {
         // Upload the file
@@ -97,12 +98,15 @@ impl UploadWithProcessingUseCase {
             metadata: request.metadata,
         };
 
-        let upload_response = self.upload_file_use_case.execute(upload_request).await?;
+        let upload_response = self
+            .upload_file_use_case
+            .execute(tenant_id, upload_request)
+            .await?;
 
         // Verify file exists in database before queuing job (prevents race condition)
         match self
             .file_repository
-            .find_by_id(upload_response.file_id)
+            .find_by_id(tenant_id, upload_response.file_id)
             .await
         {
             Ok(Some(_file)) => {
@@ -135,7 +139,7 @@ impl UploadWithProcessingUseCase {
             verification_attempts += 1;
             match self
                 .file_repository
-                .find_by_id(upload_response.file_id)
+                .find_by_id(tenant_id, upload_response.file_id)
                 .await
             {
                 Ok(Some(_file)) => {
@@ -170,7 +174,11 @@ impl UploadWithProcessingUseCase {
                 job_type: JobType::FileProcessing,
             };
 
-            match self.queue_job_use_case.execute(queue_request).await {
+            match self
+                .queue_job_use_case
+                .execute(tenant_id, queue_request)
+                .await
+            {
                 Ok(queue_response) => Some(queue_response.job_id),
                 Err(e) => {
                     // Log the error but don't fail the upload

@@ -68,6 +68,7 @@ impl UploadFileUseCase {
 
     pub async fn execute(
         &self,
+        tenant_id: Uuid,
         request: UploadFileRequest,
     ) -> Result<UploadFileResponse, UploadFileError> {
         // Validate input
@@ -87,16 +88,24 @@ impl UploadFileUseCase {
         let file_hash = FileHash::from_bytes(&request.file_data);
 
         // Check for duplicate files
-        if let Ok(Some(_)) = self.file_repository.find_by_hash(file_hash.as_str()).await {
+        if let Ok(Some(_)) = self
+            .file_repository
+            .find_by_hash(tenant_id, file_hash.as_str())
+            .await
+        {
             return Err(UploadFileError::DuplicateFile(
                 "File with this hash already exists".to_string(),
             ));
         }
 
+        let file_id = Uuid::new_v4();
+
         // Store file
         let stored_file = self
             .file_storage
             .store_file(
+                tenant_id,
+                file_id,
                 &request.file_data,
                 &request.file_name,
                 request.content_type.as_deref(),
@@ -106,7 +115,7 @@ impl UploadFileUseCase {
 
         // Create domain entity
         let file = File::new(
-            stored_file.path,
+            stored_file.key,
             request.file_name.clone(),
             Some(request.file_data.len() as i64),
             request.content_type.clone(),
@@ -114,8 +123,15 @@ impl UploadFileUseCase {
             request.metadata,
         );
 
-        // Save to repository and get the generated ID
-        let file_id = self.file_repository.save(&file).await?;
+        // Save to repository and verify the generated id round-trips
+        let saved_id = self.file_repository.save(tenant_id, &file).await?;
+        if saved_id != file_id {
+            let _ = self.file_storage.delete(tenant_id, file_id).await;
+            return Err(UploadFileError::RepositoryError(format!(
+                "File id mismatch after save: storage={} db={}",
+                file_id, saved_id
+            )));
+        }
 
         Ok(UploadFileResponse {
             file_id,

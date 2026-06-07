@@ -73,6 +73,7 @@ impl ProcessUrlDirectUseCase {
 
     pub async fn execute(
         &self,
+        tenant_id: Uuid,
         request: ProcessUrlDirectRequest,
     ) -> Result<ProcessUrlDirectResponse, ProcessUrlDirectError> {
         // Validate URL
@@ -122,7 +123,7 @@ impl ProcessUrlDirectUseCase {
         // Save file to repository and get the generated ID
         let file_id = self
             .file_repository
-            .save(&file)
+            .save(tenant_id, &file)
             .await
             .map_err(|e| ProcessUrlDirectError::RepositoryError(e.to_string()))?;
 
@@ -135,7 +136,9 @@ impl ProcessUrlDirectUseCase {
                 },
             };
 
-            self.queue_job_use_case.execute(queue_request).await?
+            self.queue_job_use_case
+                .execute(tenant_id, queue_request)
+                .await?
         } else {
             return Err(ProcessUrlDirectError::ValidationError(
                 "Auto-processing is required for direct URL processing".to_string(),

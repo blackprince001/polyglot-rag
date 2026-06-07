@@ -12,6 +12,7 @@ use crate::infrastructure::database::schema::content_chunks;
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ContentChunkModel {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub file_id: Uuid,
     pub chunk_text: String,
     pub chunk_index: i32,
@@ -26,6 +27,7 @@ pub struct ContentChunkModel {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct NewContentChunkModel {
     pub id: Option<Uuid>,
+    pub tenant_id: Uuid,
     pub file_id: Uuid,
     pub chunk_text: String,
     pub chunk_index: i32,
@@ -35,10 +37,11 @@ pub struct NewContentChunkModel {
     pub created_at: Option<DateTime<Utc>>,
 }
 
-impl From<&DomainChunk> for NewContentChunkModel {
-    fn from(domain_chunk: &DomainChunk) -> Self {
+impl NewContentChunkModel {
+    pub fn for_tenant(tenant_id: Uuid, domain_chunk: &DomainChunk) -> Self {
         Self {
             id: None, // Let database generate the ID
+            tenant_id,
             file_id: domain_chunk.file_id(),
             chunk_text: domain_chunk.chunk_text().to_string(),
             chunk_index: domain_chunk.chunk_index(),

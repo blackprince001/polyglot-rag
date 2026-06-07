@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::domain::entities::File;
 use crate::domain::repositories::{FileRepository, file_repository::FileRepositoryError};
@@ -49,19 +50,30 @@ impl ListFilesUseCase {
         Self { file_repository }
     }
 
-    pub async fn execute(&self, request: ListFilesRequest) -> Result<ListFilesResponse, ListFilesError> {
+    pub async fn execute(
+        &self,
+        tenant_id: Uuid,
+        request: ListFilesRequest,
+    ) -> Result<ListFilesResponse, ListFilesError> {
         // Validate input
         if request.skip < 0 {
-            return Err(ListFilesError::ValidationError("Skip cannot be negative".to_string()));
+            return Err(ListFilesError::ValidationError(
+                "Skip cannot be negative".to_string(),
+            ));
         }
 
         if request.limit <= 0 || request.limit > 1000 {
-            return Err(ListFilesError::ValidationError("Limit must be between 1 and 1000".to_string()));
+            return Err(ListFilesError::ValidationError(
+                "Limit must be between 1 and 1000".to_string(),
+            ));
         }
 
         // Get files and total count
-        let files = self.file_repository.find_all(request.skip, request.limit).await?;
-        let total_count = self.file_repository.count().await?;
+        let files = self
+            .file_repository
+            .find_all(tenant_id, request.skip, request.limit)
+            .await?;
+        let total_count = self.file_repository.count(tenant_id).await?;
 
         Ok(ListFilesResponse {
             files,

@@ -23,10 +23,7 @@ impl std::error::Error for GetFileError {}
 
 impl From<FileRepositoryError> for GetFileError {
     fn from(error: FileRepositoryError) -> Self {
-        match error {
-            FileRepositoryError::NotFound(id) => GetFileError::FileNotFound(id),
-            _ => GetFileError::RepositoryError(error.to_string()),
-        }
+        GetFileError::RepositoryError(error.to_string())
     }
 }
 
@@ -49,10 +46,14 @@ impl GetFileUseCase {
         Self { file_repository }
     }
 
-    pub async fn execute(&self, request: GetFileRequest) -> Result<GetFileResponse, GetFileError> {
+    pub async fn execute(
+        &self,
+        tenant_id: Uuid,
+        request: GetFileRequest,
+    ) -> Result<GetFileResponse, GetFileError> {
         let file = self
             .file_repository
-            .find_by_id(request.file_id)
+            .find_by_id(tenant_id, request.file_id)
             .await?
             .ok_or(GetFileError::FileNotFound(request.file_id))?;
 

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct FileResponseDto {
     pub id: Uuid,
     pub file_name: String,
@@ -13,7 +14,7 @@ pub struct FileResponseDto {
     pub processing_status: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct PaginationDto {
     #[serde(default = "default_skip")]
     pub skip: i64,
@@ -29,20 +30,20 @@ fn default_limit() -> i64 {
     20
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct FileListResponseDto {
     pub files: Vec<FileResponseDto>,
     pub meta: PaginationMetaDto,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PaginationMetaDto {
     pub offset: i64,
     pub limit: i64,
     pub total: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UploadResponseDto {
     pub file_id: Uuid,
     pub file_name: String,
@@ -52,7 +53,7 @@ pub struct UploadResponseDto {
     pub message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ProcessFileResponseDto {
     pub file_id: Uuid,
     pub chunks_created: i32,
@@ -106,7 +107,7 @@ impl From<crate::application::use_cases::process_document::ProcessDocumentRespon
 }
 
 // DTOs for single file operations
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct FileDetailResponseDto {
     pub file_id: Uuid,
     pub file_name: String,
@@ -118,25 +119,6 @@ pub struct FileDetailResponseDto {
     pub created_at: String,
     pub updated_at: String,
     pub metadata: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ContentChunkDto {
-    pub chunk_id: Uuid,
-    pub file_id: Uuid,
-    pub chunk_text: String,
-    pub chunk_index: i32,
-    pub word_count: Option<i32>,
-    pub page_number: Option<i32>,
-    pub section_path: Option<String>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct FileChunksResponseDto {
-    pub file_id: Uuid,
-    pub chunks: Vec<ContentChunkDto>,
-    pub meta: PaginationMetaDto,
 }
 
 impl From<crate::application::use_cases::get_file::GetFileResponse> for FileDetailResponseDto {
@@ -163,35 +145,41 @@ impl From<crate::application::use_cases::get_file::GetFileResponse> for FileDeta
     }
 }
 
-impl From<&crate::domain::entities::ContentChunk> for ContentChunkDto {
-    fn from(chunk: &crate::domain::entities::ContentChunk) -> Self {
-        Self {
-            chunk_id: chunk.id(),
-            file_id: chunk.file_id(),
-            chunk_text: chunk.chunk_text().to_string(),
-            chunk_index: chunk.chunk_index(),
-            word_count: Some(chunk.word_count() as i32),
-            page_number: chunk.page_number(),
-            section_path: chunk.section_path().map(|s| s.to_string()),
-            created_at: chunk.created_at().to_rfc3339(),
-        }
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RequestUploadUrlRequestDto {
+    pub file_name: String,
+    pub content_type: Option<String>,
+    /// Optional override for the presigned URL TTL. Server config default
+    /// applies when omitted.
+    pub expiry_secs: Option<u64>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RequestUploadUrlResponseDto {
+    pub file_id: Uuid,
+    pub file_name: String,
+    pub method: String,
+    pub url: Option<String>,
+    pub headers: Vec<HeaderPairDto>,
+    pub form_fields: Vec<HeaderPairDto>,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct HeaderPairDto {
+    pub name: String,
+    pub value: String,
+}
+
+impl From<(String, String)> for HeaderPairDto {
+    fn from((name, value): (String, String)) -> Self {
+        Self { name, value }
     }
 }
 
-impl From<crate::application::use_cases::get_file_chunks::GetFileChunksResponse>
-    for FileChunksResponseDto
-{
-    fn from(
-        response: crate::application::use_cases::get_file_chunks::GetFileChunksResponse,
-    ) -> Self {
-        Self {
-            file_id: response.file_id,
-            chunks: response.chunks.iter().map(ContentChunkDto::from).collect(),
-            meta: PaginationMetaDto {
-                offset: response.skip,
-                limit: response.limit,
-                total: response.total_chunks,
-            },
-        }
-    }
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CompleteUploadResponseDto {
+    pub file_id: Uuid,
+    pub job_id: Uuid,
+    pub status: String,
 }

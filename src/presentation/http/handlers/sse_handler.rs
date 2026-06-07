@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::application::use_cases::{GetJobStatusUseCase, get_job_status::GetJobStatusRequest};
 use crate::presentation::http::dto::job_dto::JobStatusDto;
+use crate::presentation::http::middleware::TenantContext;
 
 pub struct SseHandler {
     get_job_status_use_case: Arc<GetJobStatusUseCase>,
@@ -24,9 +25,11 @@ impl SseHandler {
 
     pub async fn job_progress_stream(
         State(handler): State<Arc<SseHandler>>,
+        tenant: TenantContext,
         Path(job_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
         let use_case = handler.get_job_status_use_case.clone();
+        let tenant_id = tenant.tenant_id;
 
         let stream = stream::unfold(Some(()), move |state| {
             let use_case = use_case.clone();
@@ -38,7 +41,7 @@ impl SseHandler {
                 // Get current job status
                 let request = GetJobStatusRequest { job_id };
 
-                match use_case.execute(request).await {
+                match use_case.execute(tenant_id, request).await {
                     Ok(response) => {
                         let job_status = JobStatusDto::from(response);
                         let event_data = serde_json::to_string(&job_status).unwrap_or_default();
@@ -74,8 +77,10 @@ impl SseHandler {
 
     pub async fn multiple_jobs_stream(
         State(handler): State<Arc<SseHandler>>,
+        tenant: TenantContext,
     ) -> Result<impl IntoResponse, StatusCode> {
         let use_case = handler.get_job_status_use_case.clone();
+        let tenant_id = tenant.tenant_id;
 
         let stream = stream::unfold(Some(()), move |state| {
             let use_case = use_case.clone();
@@ -84,11 +89,12 @@ impl SseHandler {
                     return None; // Stream ended
                 }
 
-                // Get all active jobs
+                // Get all active jobs (scoped to this tenant)
                 match use_case.get_active_jobs().await {
                     Ok(jobs) => {
                         let jobs_data: Vec<JobStatusDto> = jobs
                             .into_iter()
+                            .filter(|job| job.tenant_id() == tenant_id)
                             .map(|job| JobStatusDto::from_job(job))
                             .collect();
 

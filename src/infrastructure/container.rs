@@ -1,70 +1,46 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{env, sync::Arc};
 
 use crate::{
     application::{
         ports::{DocumentExtractor, EmbeddingProvider, FileStorage, JobQueue},
         services::{DocumentProcessorService, EmbeddingService, SearchService},
         use_cases::{
-            CancelJobUseCase, GetFileUseCase, GetJobStatusUseCase,
-            ListFilesUseCase, ProcessDocumentUseCase, ProcessUrlDirectUseCase,
-            ProcessYoutubeDirectUseCase, QueueProcessingJobUseCase, SearchContentUseCase,
+            CancelJobUseCase, CompleteUploadUseCase, GetFileChunksUseCase, GetFileUseCase,
+            GetJobStatusUseCase, ListFilesUseCase, ProcessDocumentUseCase,
+            ProcessTextDirectUseCase, ProcessUrlDirectUseCase, ProcessYoutubeDirectUseCase,
+            QueueProcessingJobUseCase, RequestUploadUrlUseCase, SearchContentUseCase,
             UploadFileUseCase, UploadWithProcessingUseCase,
         },
     },
-    domain::repositories::{ChunkRepository, EmbeddingRepository, FileRepository, JobRepository},
+    domain::repositories::{
+        AssetRepository, AuthRepository, ChunkRepository, EmbeddingRepository, FileRepository,
+        JobRepository,
+    },
     infrastructure::{
         database::{
             create_connection_pool, get_database_connection,
             repositories::{
-                PostgresChunkRepository, PostgresEmbeddingRepository, PostgresFileRepository,
-                PostgresJobRepository,
+                PostgresAssetRepository, PostgresAuthRepository, PostgresChunkRepository,
+                PostgresEmbeddingRepository, PostgresFileRepository, PostgresJobRepository,
             },
             run_migrations,
         },
-        external_services::{
-            InferenceEmbeddingProvider, document_extractors::CompositeDocumentExtractor,
-        },
-        file_system::LocalFileStorage,
+        external_services::{InferenceEmbeddingProvider, document_extractors::ExtractorRegistry},
+        file_system::StorageConfig,
         messaging::{BackgroundProcessor, MpscJobQueue},
     },
     presentation::http::handlers::{
-        ChunkHandler, ContentHandler, EmbeddingHandler, FileHandler, JobHandler, SearchHandler,
-        SseHandler,
+        ChunkHandler, ContentHandler, EmbeddingHandler, FileHandler, HealthHandler, JobHandler,
+        SearchHandler, SseHandler, TenantsHandler,
     },
 };
 
+
 pub struct AppContainer {
-    // Repositories
-    pub file_repository: Arc<dyn FileRepository>,
-    pub chunk_repository: Arc<dyn ChunkRepository>,
-    pub embedding_repository: Arc<dyn EmbeddingRepository>,
-    pub job_repository: Arc<dyn JobRepository>,
-
-    // External Services
-    pub embedding_provider: Arc<dyn EmbeddingProvider>,
-    pub file_storage: Arc<dyn FileStorage>,
-    pub document_extractor: Arc<dyn DocumentExtractor>,
-
-    // Job Queue and Background Processing
-    pub job_queue: Arc<dyn JobQueue>,
+    // Background processing + auth (consumed by the server/middleware)
     pub background_processor: Arc<BackgroundProcessor>,
-
-    // Application Services
-    pub document_processor: Arc<DocumentProcessorService>,
-    pub embedding_service: Arc<EmbeddingService>,
-    pub search_service: Arc<SearchService>,
-
-    // Use Cases
-    pub upload_file_use_case: Arc<UploadFileUseCase>,
-    pub upload_with_processing_use_case: Arc<UploadWithProcessingUseCase>,
-    pub list_files_use_case: Arc<ListFilesUseCase>,
-    pub process_document_use_case: Arc<ProcessDocumentUseCase>,
-    pub process_url_direct_use_case: Arc<ProcessUrlDirectUseCase>,
-    pub process_youtube_direct_use_case: Arc<ProcessYoutubeDirectUseCase>,
-    pub search_content_use_case: Arc<SearchContentUseCase>,
-    pub queue_job_use_case: Arc<QueueProcessingJobUseCase>,
-    pub get_job_status_use_case: Arc<GetJobStatusUseCase>,
-    pub cancel_job_use_case: Arc<CancelJobUseCase>,
+    pub storage_janitor: Arc<crate::infrastructure::messaging::storage_janitor::StorageJanitor>,
+    pub auth_repository: Arc<dyn AuthRepository>,
 
     // HTTP Handlers
     pub file_handler: Arc<FileHandler>,
@@ -74,10 +50,12 @@ pub struct AppContainer {
     pub sse_handler: Arc<SseHandler>,
     pub chunk_handler: Arc<ChunkHandler>,
     pub embedding_handler: Arc<EmbeddingHandler>,
+    pub health_handler: Arc<HealthHandler>,
+    pub tenants_handler: Arc<TenantsHandler>,
 }
 
 impl AppContainer {
-    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(worker_count: usize) -> Result<Self, Box<dyn std::error::Error>> {
         // Create database connection pool
         let db_pool = create_connection_pool()?;
         let mut conn = get_database_connection()
@@ -92,19 +70,26 @@ impl AppContainer {
             Arc::new(PostgresChunkRepository::new(db_pool.clone()));
         let embedding_repository: Arc<dyn EmbeddingRepository> =
             Arc::new(PostgresEmbeddingRepository::new(db_pool.clone()));
+        let auth_repository: Arc<dyn AuthRepository> =
+            Arc::new(PostgresAuthRepository::new(db_pool.clone()));
+        let asset_repository: Arc<dyn AssetRepository> =
+            Arc::new(PostgresAssetRepository::new(db_pool.clone()));
         let job_repository: Arc<dyn JobRepository> = Arc::new(PostgresJobRepository::new(db_pool));
 
         // Create external services
         let embedding_provider: Arc<dyn EmbeddingProvider> =
             Arc::new(InferenceEmbeddingProvider::from_env()?);
 
-        let upload_dir =
-            PathBuf::from(std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "./uploads".to_string()));
-        let file_storage: Arc<dyn FileStorage> = Arc::new(LocalFileStorage::new(upload_dir));
+        let storage_config =
+            StorageConfig::from_env().map_err(|e| format!("Storage config error: {}", e))?;
+        let file_storage: Arc<dyn FileStorage> = storage_config
+            .build()
+            .await
+            .map_err(|e| format!("Storage backend init failed: {}", e))?;
 
         // Create document extractor
         let document_extractor: Arc<dyn DocumentExtractor> = Arc::new(
-            CompositeDocumentExtractor::new()
+            ExtractorRegistry::with_defaults()
                 .map_err(|e| format!("Failed to create document extractor: {}", e))?,
         );
 
@@ -114,15 +99,19 @@ impl AppContainer {
             embedding_provider.clone(),
             embedding_repository.clone(),
             chunk_repository.clone(),
+            file_repository.clone(),
+            asset_repository.clone(),
         ));
 
         // Create document processor service
         let document_processor = Arc::new(DocumentProcessorService::new(
             document_extractor.clone(),
-            embedding_provider.clone(),
+            embedding_service.clone(),
             chunk_repository.clone(),
             embedding_repository.clone(),
             file_repository.clone(),
+            asset_repository.clone(),
+            file_storage.clone(),
         ));
 
         // Create use cases
@@ -154,12 +143,12 @@ impl AppContainer {
                 file_repository.clone(),
                 document_processor.clone(),
                 document_extractor.clone(),
-                embedding_provider.clone(),
+                embedding_service.clone(),
                 file_storage.clone(),
                 chunk_repository.clone(),
                 embedding_repository.clone(),
             )
-            .with_worker_count(3),
+            .with_worker_count(worker_count),
         );
 
         // Create async use cases
@@ -192,6 +181,22 @@ impl AppContainer {
             queue_job_use_case.clone(),
         ));
 
+        let process_text_direct_use_case = Arc::new(ProcessTextDirectUseCase::new(
+            file_repository.clone(),
+            file_storage.clone(),
+            queue_job_use_case.clone(),
+        ));
+
+        let request_upload_url_use_case = Arc::new(RequestUploadUrlUseCase::new(
+            file_repository.clone(),
+            file_storage.clone(),
+            storage_config.presigned_upload_ttl_secs(),
+        ));
+        let complete_upload_use_case = Arc::new(CompleteUploadUseCase::new(
+            file_repository.clone(),
+            queue_job_use_case.clone(),
+        ));
+
         // Create HTTP handlers
         let file_handler = Arc::new(FileHandler::new(
             upload_file_use_case.clone(),
@@ -199,7 +204,12 @@ impl AppContainer {
             list_files_use_case.clone(),
             process_document_use_case.clone(),
             get_file_use_case.clone(),
+            request_upload_url_use_case.clone(),
+            complete_upload_use_case.clone(),
             file_repository.clone(),
+            asset_repository.clone(),
+            file_storage.clone(),
+            storage_config.presigned_download_ttl_secs(),
         ));
 
         let search_handler = Arc::new(SearchHandler::new(search_content_use_case.clone()));
@@ -215,34 +225,46 @@ impl AppContainer {
         let content_handler = Arc::new(ContentHandler::new(
             process_url_direct_use_case.clone(),
             process_youtube_direct_use_case.clone(),
+            process_text_direct_use_case.clone(),
         ));
 
-        let chunk_handler = Arc::new(ChunkHandler::new(chunk_repository.clone()));
-        let embedding_handler = Arc::new(EmbeddingHandler::new(embedding_repository.clone()));
+        let get_file_chunks_use_case = Arc::new(GetFileChunksUseCase::new(
+            file_repository.clone(),
+            chunk_repository.clone(),
+            asset_repository.clone(),
+        ));
+        let chunk_handler = Arc::new(ChunkHandler::new(
+            chunk_repository.clone(),
+            get_file_chunks_use_case.clone(),
+        ));
+        let embedding_handler = Arc::new(EmbeddingHandler::new(
+            embedding_repository.clone(),
+            search_service.clone(),
+        ));
+
+        let health_handler = Arc::new(HealthHandler::new(env::var("EMBEDDINGS_SERVICE_URL").ok()));
+
+        let tenants_handler = Arc::new(TenantsHandler::new(auth_repository.clone()));
+
+        let storage_janitor = Arc::new(
+            crate::infrastructure::messaging::storage_janitor::StorageJanitor::new(
+                file_repository.clone(),
+                file_storage.clone(),
+                queue_job_use_case.clone(),
+                env_u64("JANITOR_INTERVAL_SECS", 300),
+                {
+                    let upload_ttl = storage_config.presigned_upload_ttl_secs();
+                    let default_dangling = (upload_ttl * 2).min(i64::MAX as u64) as i64;
+                    env_i64("JANITOR_DANGLING_THRESHOLD_SECS", default_dangling).max(1800)
+                },
+                env_i64("JANITOR_STALE_PROCESSING_SECS", 1800),
+            ),
+        );
 
         Ok(Self {
-            file_repository,
-            chunk_repository,
-            embedding_repository,
-            job_repository,
-            embedding_provider,
-            file_storage,
-            document_extractor,
-            job_queue,
             background_processor,
-            document_processor,
-            embedding_service,
-            search_service,
-            upload_file_use_case,
-            upload_with_processing_use_case,
-            list_files_use_case,
-            process_document_use_case,
-            process_url_direct_use_case,
-            process_youtube_direct_use_case,
-            search_content_use_case,
-            queue_job_use_case,
-            get_job_status_use_case,
-            cancel_job_use_case,
+            storage_janitor,
+            auth_repository,
             file_handler,
             content_handler,
             search_handler,
@@ -250,6 +272,22 @@ impl AppContainer {
             sse_handler,
             chunk_handler,
             embedding_handler,
+            health_handler,
+            tenants_handler,
         })
     }
+}
+
+fn env_u64(name: &str, default: u64) -> u64 {
+    env::var(name)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_i64(name: &str, default: i64) -> i64 {
+    env::var(name)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default)
 }

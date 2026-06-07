@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
 use crate::application::services::SearchService;
-use crate::domain::entities::ContentChunk;
+use crate::domain::entities::{Asset, ContentChunk, File};
 
 #[derive(Debug)]
 pub enum SearchContentError {
-    EmbeddingError(String),
     RepositoryError(String),
     ValidationError(String),
 }
@@ -13,7 +12,6 @@ pub enum SearchContentError {
 impl std::fmt::Display for SearchContentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SearchContentError::EmbeddingError(msg) => write!(f, "Embedding error: {}", msg),
             SearchContentError::RepositoryError(msg) => write!(f, "Repository error: {}", msg),
             SearchContentError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
         }
@@ -31,17 +29,23 @@ pub struct SearchContentRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct SearchResult {
+pub struct ScoredChunk {
     pub chunk: ContentChunk,
     pub similarity_score: f32,
-    pub file_id: uuid::Uuid,
+}
+
+#[derive(Debug, Clone)]
+pub struct DocumentMatch {
+    pub file: File,
+    pub chunks: Vec<ScoredChunk>,
+    pub assets: Vec<Asset>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SearchContentResponse {
     pub query: String,
-    pub results: Vec<SearchResult>,
-    pub total_results: i32,
+    pub documents: Vec<DocumentMatch>,
+    pub total_chunk_matches: i32,
     pub search_time_ms: u64,
 }
 
@@ -54,22 +58,32 @@ impl SearchContentUseCase {
         Self { search_service }
     }
 
-    pub async fn execute(&self, request: SearchContentRequest) -> Result<SearchContentResponse, SearchContentError> {
+    pub async fn execute(
+        &self,
+        tenant_id: uuid::Uuid,
+        request: SearchContentRequest,
+    ) -> Result<SearchContentResponse, SearchContentError> {
         let start_time = std::time::Instant::now();
 
         // Validate input
         if request.query.trim().is_empty() {
-            return Err(SearchContentError::ValidationError("Query cannot be empty".to_string()));
+            return Err(SearchContentError::ValidationError(
+                "Query cannot be empty".to_string(),
+            ));
         }
 
         let limit = request.limit.unwrap_or(10);
         if limit <= 0 || limit > 100 {
-            return Err(SearchContentError::ValidationError("Limit must be between 1 and 100".to_string()));
+            return Err(SearchContentError::ValidationError(
+                "Limit must be between 1 and 100".to_string(),
+            ));
         }
 
-        // Perform search
-        let results = self.search_service
+        // Perform search (results come back grouped by document)
+        let documents = self
+            .search_service
             .search_content(
+                tenant_id,
                 &request.query,
                 limit,
                 request.similarity_threshold,
@@ -78,12 +92,13 @@ impl SearchContentUseCase {
             .await
             .map_err(|e| SearchContentError::RepositoryError(e.to_string()))?;
 
+        let total_chunk_matches = documents.iter().map(|d| d.chunks.len() as i32).sum();
         let search_time = start_time.elapsed().as_millis() as u64;
 
         Ok(SearchContentResponse {
             query: request.query,
-            total_results: results.len() as i32,
-            results,
+            documents,
+            total_chunk_matches,
             search_time_ms: search_time,
         })
     }

@@ -68,7 +68,10 @@ impl FileMetadata {
     }
 
     pub fn set_page_count(&mut self, count: i32) {
-        self.set_property("page_count".to_string(), serde_json::Value::Number(count.into()));
+        self.set_property(
+            "page_count".to_string(),
+            serde_json::Value::Number(count.into()),
+        );
     }
 
     pub fn get_page_count(&self) -> Option<i32> {
@@ -115,10 +118,11 @@ impl From<FileMetadata> for HashMap<String, serde_json::Value> {
 impl From<FileMetadata> for serde_json::Value {
     fn from(metadata: FileMetadata) -> Self {
         serde_json::Value::Object(
-            metadata.properties
+            metadata
+                .properties
                 .into_iter()
                 .map(|(k, v)| (k, v))
-                .collect()
+                .collect(),
         )
     }
 }
@@ -137,14 +141,17 @@ mod tests {
     #[test]
     fn test_property_operations() {
         let mut metadata = FileMetadata::new();
-        
-        metadata.set_property("key1".to_string(), serde_json::Value::String("value1".to_string()));
+
+        metadata.set_property(
+            "key1".to_string(),
+            serde_json::Value::String("value1".to_string()),
+        );
         assert!(metadata.has_property("key1"));
         assert_eq!(metadata.len(), 1);
-        
+
         let value = metadata.get_property("key1").unwrap();
         assert_eq!(value.as_str().unwrap(), "value1");
-        
+
         let removed = metadata.remove_property("key1").unwrap();
         assert_eq!(removed.as_str().unwrap(), "value1");
         assert!(metadata.is_empty());
@@ -153,12 +160,12 @@ mod tests {
     #[test]
     fn test_common_metadata_helpers() {
         let mut metadata = FileMetadata::new();
-        
+
         metadata.set_author("John Doe".to_string());
         metadata.set_title("Test Document".to_string());
         metadata.set_page_count(10);
         metadata.set_language("en".to_string());
-        
+
         assert_eq!(metadata.get_author().unwrap(), "John Doe");
         assert_eq!(metadata.get_title().unwrap(), "Test Document");
         assert_eq!(metadata.get_page_count().unwrap(), 10);
@@ -168,9 +175,12 @@ mod tests {
     #[test]
     fn test_builder_pattern() {
         let metadata = FileMetadata::new()
-            .with_property("key1".to_string(), serde_json::Value::String("value1".to_string()))
+            .with_property(
+                "key1".to_string(),
+                serde_json::Value::String("value1".to_string()),
+            )
             .with_property("key2".to_string(), serde_json::Value::Number(42.into()));
-        
+
         assert_eq!(metadata.len(), 2);
         assert!(metadata.has_property("key1"));
         assert!(metadata.has_property("key2"));
@@ -180,12 +190,12 @@ mod tests {
     fn test_merge() {
         let mut metadata1 = FileMetadata::new();
         metadata1.set_author("Author 1".to_string());
-        
+
         let mut metadata2 = FileMetadata::new();
         metadata2.set_title("Title 2".to_string());
-        
+
         metadata1.merge(metadata2);
-        
+
         assert_eq!(metadata1.get_author().unwrap(), "Author 1");
         assert_eq!(metadata1.get_title().unwrap(), "Title 2");
         assert_eq!(metadata1.len(), 2);

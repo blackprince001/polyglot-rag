@@ -13,6 +13,7 @@ use crate::infrastructure::database::schema::files;
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct FileModel {
     pub id: Uuid,
+    pub tenant_id: Uuid,
     pub file_path: String,
     pub file_name: String,
     pub file_size: Option<i64>,
@@ -29,6 +30,7 @@ pub struct FileModel {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct NewFileModel {
     pub id: Option<Uuid>,
+    pub tenant_id: Uuid,
     pub file_path: String,
     pub file_name: String,
     pub file_size: Option<i64>,
@@ -40,10 +42,11 @@ pub struct NewFileModel {
     pub processing_status: String,
 }
 
-impl From<&DomainFile> for NewFileModel {
-    fn from(domain_file: &DomainFile) -> Self {
+impl NewFileModel {
+    pub fn for_tenant(tenant_id: Uuid, domain_file: &DomainFile) -> Self {
         Self {
             id: None, // Let database generate the ID
+            tenant_id,
             file_path: domain_file.file_path().to_string(),
             file_name: domain_file.file_name().to_string(),
             file_size: domain_file.file_size(),

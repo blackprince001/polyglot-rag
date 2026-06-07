@@ -76,18 +76,19 @@ impl QueueProcessingJobUseCase {
 
     pub async fn execute(
         &self,
+        tenant_id: Uuid,
         request: QueueJobRequest,
     ) -> Result<QueueJobResponse, QueueJobError> {
         // Validate that the file exists
         let file = self
             .file_repository
-            .find_by_id(request.file_id)
+            .find_by_id(tenant_id, request.file_id)
             .await
             .map_err(|e| QueueJobError::RepositoryError(e.to_string()))?
             .ok_or_else(|| QueueJobError::FileNotFound(request.file_id))?;
 
         // Check if there's already an active job for this file
-        let existing_jobs = self.job_repository.find_by_file_id(file.id()).await?;
+        let existing_jobs = self.job_repository.find_by_file_id(tenant_id, file.id()).await?;
         if existing_jobs.iter().any(|job| job.is_active()) {
             return Err(QueueJobError::ValidationError(
                 "File already has an active processing job".to_string(),
@@ -96,34 +97,19 @@ impl QueueProcessingJobUseCase {
 
         // Create the processing job based on type
         let job = match &request.job_type {
-            JobType::FileProcessing => ProcessingJob::new_file_processing(request.file_id),
+            JobType::FileProcessing => ProcessingJob::new_file_processing(tenant_id, request.file_id),
             JobType::UrlExtraction { url } => {
-                ProcessingJob::new_url_extraction(request.file_id, url.clone())
+                ProcessingJob::new_url_extraction(tenant_id, request.file_id, url.clone())
             }
             JobType::YoutubeExtraction { url } => {
-                ProcessingJob::new_youtube_extraction(request.file_id, url.clone())
+                ProcessingJob::new_youtube_extraction(tenant_id, request.file_id, url.clone())
             }
         };
 
-        // Save job to repository and get the database-generated ID
-        let job_id = self.job_repository.save(&job).await?;
-
-        // Create job with the database ID for queuing
-        let job_with_id = ProcessingJob::from_database(
-            job_id,
-            job.file_id(),
-            job.job_type().clone(),
-            job.status().clone(),
-            job.progress(),
-            job.created_at(),
-            job.started_at(),
-            job.completed_at(),
-            job.error_message().map(|s| s.to_string()),
-            job.result_summary().cloned(),
-        );
+        let job_id = job.id();
 
         // Enqueue job for processing
-        self.job_queue.enqueue(job_with_id).await?;
+        self.job_queue.enqueue(job).await?;
 
         Ok(QueueJobResponse {
             job_id,
@@ -136,17 +122,19 @@ impl QueueProcessingJobUseCase {
 
     pub async fn queue_file_processing(
         &self,
+        tenant_id: Uuid,
         file_id: Uuid,
     ) -> Result<QueueJobResponse, QueueJobError> {
         let request = QueueJobRequest {
             file_id,
             job_type: JobType::FileProcessing,
         };
-        self.execute(request).await
+        self.execute(tenant_id, request).await
     }
 
     pub async fn queue_url_extraction(
         &self,
+        tenant_id: Uuid,
         file_id: Uuid,
         url: String,
     ) -> Result<QueueJobResponse, QueueJobError> {
@@ -167,11 +155,12 @@ impl QueueProcessingJobUseCase {
             file_id,
             job_type: JobType::UrlExtraction { url },
         };
-        self.execute(request).await
+        self.execute(tenant_id, request).await
     }
 
     pub async fn queue_youtube_extraction(
         &self,
+        tenant_id: Uuid,
         file_id: Uuid,
         url: String,
     ) -> Result<QueueJobResponse, QueueJobError> {
@@ -201,6 +190,6 @@ impl QueueProcessingJobUseCase {
             file_id,
             job_type: JobType::YoutubeExtraction { url },
         };
-        self.execute(request).await
+        self.execute(tenant_id, request).await
     }
 }

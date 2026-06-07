@@ -120,18 +120,6 @@ impl InferenceClient {
         self.send_embed_request(request).await
     }
 
-    pub async fn health_check(&self) -> Result<bool, EmbeddingsError> {
-        let url = format!("{}/health", self.config.service_url);
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| EmbeddingsError::RequestError(e.to_string()))?;
-
-        Ok(response.status().is_success())
-    }
-
     async fn send_embed_request(
         &self,
         request: TeiEmbedRequest,
@@ -244,11 +232,6 @@ impl EmbeddingProvider for InferenceEmbeddingProvider {
 
         Ok(EmbeddingResponse {
             embedding: Self::to_pgvector(response[0].clone()),
-            model_name: request
-                .model_name
-                .unwrap_or_else(|| "qwen-embedding".to_string()),
-            model_version: request.model_version,
-            token_count: None, // Not provided by TEI API
         })
     }
 
@@ -264,9 +247,6 @@ impl EmbeddingProvider for InferenceEmbeddingProvider {
                 EmbeddingsError::RequestError(msg) => EmbeddingProviderError::NetworkError(msg),
                 EmbeddingsError::ParseError(msg) => EmbeddingProviderError::ApiError(msg),
                 EmbeddingsError::ApiError(msg) => EmbeddingProviderError::ApiError(msg),
-                // EmbeddingsError::MaxRetriesExceeded(_) => {
-                //     EmbeddingProviderError::ServiceUnavailable
-                // }
             })?;
 
         let embeddings = response.into_iter().map(Self::to_pgvector).collect();
@@ -277,16 +257,6 @@ impl EmbeddingProvider for InferenceEmbeddingProvider {
                 .model_name
                 .unwrap_or_else(|| "qwen-embedding".to_string()),
             model_version: request.model_version,
-            total_tokens: None, // Not provided by TEI API
-        })
-    }
-
-    async fn health_check(&self) -> Result<bool, EmbeddingProviderError> {
-        self.client.health_check().await.map_err(|e| match e {
-            EmbeddingsError::RequestError(msg) => EmbeddingProviderError::NetworkError(msg),
-            EmbeddingsError::ParseError(msg) => EmbeddingProviderError::ApiError(msg),
-            EmbeddingsError::ApiError(msg) => EmbeddingProviderError::ApiError(msg),
-            // EmbeddingsError::MaxRetriesExceeded(_) => EmbeddingProviderError::ServiceUnavailable,
         })
     }
 
@@ -295,13 +265,5 @@ impl EmbeddingProvider for InferenceEmbeddingProvider {
             "Qwen/Qwen3-Embedding-0.6B".to_string(),
             Some("0.6B".to_string()),
         )
-    }
-
-    fn max_input_length(&self) -> usize {
-        512 // Based on TEI info - this should be fetched from model info
-    }
-
-    fn embedding_dimension(&self) -> usize {
-        1024 // This should be fetched from model info, but 1024 is typical for this model
     }
 }

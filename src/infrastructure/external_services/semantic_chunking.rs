@@ -80,29 +80,34 @@ impl RTSplitter {
         let mut chunks = Vec::new();
         let mut current_chunk = String::new();
 
-        for part in parts {
-            let part_with_sep = if current_chunk.is_empty() {
+        for (i, part) in parts.iter().enumerate() {
+            // `split` drops the separators; reattach the one that preceded each
+            // part (every part except the first) so the chunks reconstruct the
+            // original text losslessly via `join("")`. The separator lands on
+            // the leading edge of a new chunk rather than being discarded at the
+            // boundary.
+            let piece = if i == 0 {
                 part.to_string()
             } else {
-                format!("{}{}{}", current_chunk, separator, part)
+                format!("{}{}", separator, part)
             };
 
-            if part_with_sep.len() <= max_chunk_size {
-                current_chunk = part_with_sep;
+            if current_chunk.is_empty() {
+                current_chunk = piece;
+            } else if current_chunk.len() + piece.len() <= max_chunk_size {
+                current_chunk.push_str(&piece);
             } else {
-                if !current_chunk.is_empty() {
-                    chunks.push(current_chunk);
-                    current_chunk = part.to_string();
-                } else {
-                    current_chunk = part.to_string();
-                }
+                chunks.push(std::mem::take(&mut current_chunk));
+                current_chunk = piece;
+            }
 
-                if current_chunk.len() > max_chunk_size {
-                    let sub_chunks =
-                        self.recursive_split(&current_chunk, max_chunk_size, separator_index + 1);
-                    chunks.extend(sub_chunks);
-                    current_chunk.clear();
-                }
+            // A single piece can still exceed the limit; recurse on the finer
+            // separator and flush the result.
+            if current_chunk.len() > max_chunk_size {
+                let sub_chunks =
+                    self.recursive_split(&current_chunk, max_chunk_size, separator_index + 1);
+                chunks.extend(sub_chunks);
+                current_chunk.clear();
             }
         }
 
@@ -158,5 +163,60 @@ mod tests {
 
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0], text);
+    }
+}
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Splitting is lossless for ANY input: concatenating the chunks (no
+        /// separator) reproduces the original text exactly.
+        #[test]
+        fn split_is_lossless(text in "(?s).*", max in 1usize..64) {
+            let splitter = RTSplitter::default();
+            let chunks = splitter.split_text(&text, max);
+            prop_assert_eq!(chunks.concat(), text.clone());
+            // No empty chunks for non-empty input.
+            if !text.is_empty() {
+                for c in &chunks {
+                    prop_assert!(!c.is_empty());
+                }
+            }
+        }
+
+        /// For ASCII input (where one char == one byte) the byte-length bound is
+        /// strictly respected. (Multibyte text can exceed the byte bound at the
+        /// character-split fallback, which is acceptable — losslessness above is
+        /// the hard guarantee.)
+        #[test]
+        fn ascii_respects_size_bound(text in "[ -~\n\t]*", max in 1usize..64) {
+            let splitter = RTSplitter::default();
+            let chunks = splitter.split_text(&text, max);
+            prop_assert_eq!(chunks.concat(), text.clone());
+            for c in &chunks {
+                prop_assert!(c.len() <= max, "chunk {:?} exceeds max {}", c, max);
+            }
+        }
+    }
+
+    #[test]
+    fn edge_cases_are_lossless() {
+        let splitter = RTSplitter::default();
+        let cases = [
+            "",
+            " ",
+            "\n\n\n",
+            &"x".repeat(500),
+            "مرحبا بالعالم RTL mixed with LTR",   // RTL + LTR
+            "emoji 😀😀😀 and CJK 北京 mixed",       // emoji + CJK
+            "tabs\tand\nnewlines\r\nmixed   spaces",
+        ];
+        for text in cases {
+            let chunks = splitter.split_text(text, 8);
+            assert_eq!(chunks.concat(), text, "lossless failed for {:?}", text);
+        }
     }
 }

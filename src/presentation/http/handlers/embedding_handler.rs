@@ -6,12 +6,16 @@ use axum::{
 };
 use pgvector::Vector;
 use std::sync::Arc;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::application::services::SearchService;
 use crate::domain::repositories::EmbeddingRepository;
 use crate::presentation::http::dto::ApiResponse;
+use crate::presentation::http::dto::document_dto::DocumentWithChunksDto;
+use crate::presentation::http::middleware::TenantContext;
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, ToSchema)]
 pub struct SimilaritySearchRequest {
     pub query_vector: Vec<f32>,
     pub limit: Option<i32>,
@@ -19,35 +23,35 @@ pub struct SimilaritySearchRequest {
     pub file_id: Option<Uuid>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, ToSchema)]
 pub struct SimilaritySearchResponse {
-    pub results: Vec<SimilaritySearchResultDto>,
-    pub total_results: usize,
-}
-
-#[derive(serde::Serialize)]
-pub struct SimilaritySearchResultDto {
-    pub similarity_score: f32,
-    pub chunk_id: Uuid,
-    pub file_id: Uuid,
+    pub documents: Vec<DocumentWithChunksDto>,
+    pub total_documents: usize,
+    pub total_chunk_matches: i32,
 }
 
 pub struct EmbeddingHandler {
     embedding_repository: Arc<dyn EmbeddingRepository>,
+    search_service: Arc<SearchService>,
 }
 
 impl EmbeddingHandler {
-    pub fn new(embedding_repository: Arc<dyn EmbeddingRepository>) -> Self {
+    pub fn new(
+        embedding_repository: Arc<dyn EmbeddingRepository>,
+        search_service: Arc<SearchService>,
+    ) -> Self {
         Self {
             embedding_repository,
+            search_service,
         }
     }
 
     pub async fn get_embedding(
         State(handler): State<Arc<EmbeddingHandler>>,
+        tenant: TenantContext,
         Path(embedding_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
-        match handler.embedding_repository.find_by_id(embedding_id).await {
+        match handler.embedding_repository.find_by_id(tenant.tenant_id, embedding_id).await {
             Ok(Some(embedding)) => Ok((
                 StatusCode::OK,
                 Json(ApiResponse::success(serde_json::json!({
@@ -80,11 +84,12 @@ impl EmbeddingHandler {
 
     pub async fn get_embedding_by_chunk(
         State(handler): State<Arc<EmbeddingHandler>>,
+        tenant: TenantContext,
         Path(chunk_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
         match handler
             .embedding_repository
-            .find_by_chunk_id(chunk_id)
+            .find_by_chunk_id(tenant.tenant_id, chunk_id)
             .await
         {
             Ok(Some(embedding)) => Ok((
@@ -119,9 +124,10 @@ impl EmbeddingHandler {
 
     pub async fn get_embeddings_by_file(
         State(handler): State<Arc<EmbeddingHandler>>,
+        tenant: TenantContext,
         Path(file_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
-        match handler.embedding_repository.find_by_file_id(file_id).await {
+        match handler.embedding_repository.find_by_file_id(tenant.tenant_id, file_id).await {
             Ok(embeddings) => {
                 let embeddings_dto: Vec<serde_json::Value> = embeddings
                     .into_iter()
@@ -159,68 +165,57 @@ impl EmbeddingHandler {
 
     pub async fn similarity_search(
         State(handler): State<Arc<EmbeddingHandler>>,
+        tenant: TenantContext,
         Json(request): Json<SimilaritySearchRequest>,
     ) -> Result<impl IntoResponse, StatusCode> {
         let limit = request.limit.unwrap_or(10);
+        if !(1..=100).contains(&limit) {
+            return Ok((
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error(
+                    "INVALID_LIMIT".to_string(),
+                    "limit must be between 1 and 100".to_string(),
+                    None,
+                )),
+            ));
+        }
         let query_vector = Vector::from(request.query_vector);
 
-        let results = if let Some(file_id) = request.file_id {
-            // Search within specific file
-            match handler
-                .embedding_repository
-                .similarity_search_by_file(
-                    &query_vector,
-                    file_id,
-                    limit,
-                    request.similarity_threshold,
-                )
-                .await
-            {
-                Ok(results) => results,
-                Err(e) => {
-                    return Ok((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::error(
-                            "SEARCH_FAILED".to_string(),
-                            e.to_string(),
-                            None,
-                        )),
-                    ));
-                }
-            }
-        } else {
-            // Global search
-            match handler
-                .embedding_repository
-                .similarity_search(&query_vector, limit, request.similarity_threshold)
-                .await
-            {
-                Ok(results) => results,
-                Err(e) => {
-                    return Ok((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::error(
-                            "SEARCH_FAILED".to_string(),
-                            e.to_string(),
-                            None,
-                        )),
-                    ));
-                }
+        let documents = match handler
+            .search_service
+            .search_with_vector(
+                tenant.tenant_id,
+                &query_vector,
+                limit,
+                request.similarity_threshold,
+                request.file_id,
+            )
+            .await
+        {
+            Ok(documents) => documents,
+            Err(e) => {
+                return Ok((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::error(
+                        "SEARCH_FAILED".to_string(),
+                        e.to_string(),
+                        None,
+                    )),
+                ));
             }
         };
 
-        let results_dto: Vec<SimilaritySearchResultDto> = results
+        let total_chunk_matches = documents.iter().map(|d| d.chunks.len() as i32).sum();
+        let documents_dto: Vec<DocumentWithChunksDto> = documents
             .into_iter()
-            .map(|r| SimilaritySearchResultDto {
-                similarity_score: r.similarity_score,
-                chunk_id: r.chunk_id,
-                file_id: Uuid::new_v4(), // TODO: Get file_id from chunk_id
-            })
+            .map(DocumentWithChunksDto::from)
             .collect();
+        let total_documents = documents_dto.len();
 
         let response = SimilaritySearchResponse {
-            total_results: results_dto.len(),
-            results: results_dto,
+            total_documents,
+            total_chunk_matches,
+            documents: documents_dto,
         };
 
         Ok((StatusCode::OK, Json(ApiResponse::success(response))))
@@ -228,9 +223,10 @@ impl EmbeddingHandler {
 
     pub async fn delete_embedding(
         State(handler): State<Arc<EmbeddingHandler>>,
+        tenant: TenantContext,
         Path(embedding_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
-        match handler.embedding_repository.delete(embedding_id).await {
+        match handler.embedding_repository.delete(tenant.tenant_id, embedding_id).await {
             Ok(true) => Ok((
                 StatusCode::OK,
                 Json(ApiResponse::success(
@@ -258,11 +254,12 @@ impl EmbeddingHandler {
 
     pub async fn delete_embeddings_by_chunk(
         State(handler): State<Arc<EmbeddingHandler>>,
+        tenant: TenantContext,
         Path(chunk_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
         match handler
             .embedding_repository
-            .delete_by_chunk_id(chunk_id)
+            .delete_by_chunk_id(tenant.tenant_id, chunk_id)
             .await
         {
             Ok(true) => Ok((
@@ -292,11 +289,12 @@ impl EmbeddingHandler {
 
     pub async fn delete_embeddings_by_file(
         State(handler): State<Arc<EmbeddingHandler>>,
+        tenant: TenantContext,
         Path(file_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
         match handler
             .embedding_repository
-            .delete_by_file_id(file_id)
+            .delete_by_file_id(tenant.tenant_id, file_id)
             .await
         {
             Ok(count) => Ok((
@@ -319,8 +317,9 @@ impl EmbeddingHandler {
 
     pub async fn get_embedding_count(
         State(handler): State<Arc<EmbeddingHandler>>,
+        tenant: TenantContext,
     ) -> Result<impl IntoResponse, StatusCode> {
-        match handler.embedding_repository.count().await {
+        match handler.embedding_repository.count(tenant.tenant_id).await {
             Ok(count) => Ok((
                 StatusCode::OK,
                 Json(ApiResponse::success(serde_json::json!({

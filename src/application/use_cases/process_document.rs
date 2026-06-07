@@ -30,10 +30,7 @@ impl std::error::Error for ProcessDocumentError {}
 
 impl From<FileRepositoryError> for ProcessDocumentError {
     fn from(error: FileRepositoryError) -> Self {
-        match error {
-            FileRepositoryError::NotFound(id) => ProcessDocumentError::FileNotFound(id),
-            _ => ProcessDocumentError::RepositoryError(error.to_string()),
-        }
+        ProcessDocumentError::RepositoryError(error.to_string())
     }
 }
 
@@ -69,6 +66,7 @@ impl ProcessDocumentUseCase {
 
     pub async fn execute(
         &self,
+        tenant_id: Uuid,
         request: ProcessDocumentRequest,
     ) -> Result<ProcessDocumentResponse, ProcessDocumentError> {
         let start_time = std::time::Instant::now();
@@ -76,7 +74,7 @@ impl ProcessDocumentUseCase {
         // Find the file
         let mut file = self
             .file_repository
-            .find_by_id(request.file_id)
+            .find_by_id(tenant_id, request.file_id)
             .await?
             .ok_or(ProcessDocumentError::FileNotFound(request.file_id))?;
 
@@ -92,28 +90,32 @@ impl ProcessDocumentUseCase {
         file.start_processing()
             .map_err(|e| ProcessDocumentError::ProcessingError(e))?;
 
-        self.file_repository.update(&file).await?;
+        self.file_repository.update(tenant_id, &file).await?;
 
         // Process the document
         let processing_result = self
             .document_processor
-            .process_file(&file, request.extraction_options.unwrap_or_default())
+            .process_file(
+                tenant_id,
+                &file,
+                request.extraction_options.unwrap_or_default(),
+            )
             .await;
 
         match processing_result {
-            Ok((chunks_created, embeddings_created)) => {
+            Ok(outcome) => {
                 // Mark as completed
                 file.complete_processing()
                     .map_err(|e| ProcessDocumentError::ProcessingError(e))?;
 
-                self.file_repository.update(&file).await?;
+                self.file_repository.update(tenant_id, &file).await?;
 
                 let processing_time = start_time.elapsed().as_millis() as u64;
 
                 Ok(ProcessDocumentResponse {
                     file_id: request.file_id,
-                    chunks_created,
-                    embeddings_created,
+                    chunks_created: outcome.chunks_created,
+                    embeddings_created: outcome.embeddings_created,
                     processing_time_ms: processing_time,
                 })
             }
@@ -122,7 +124,7 @@ impl ProcessDocumentUseCase {
                 file.fail_processing(e.to_string())
                     .map_err(|e| ProcessDocumentError::ProcessingError(e))?;
 
-                self.file_repository.update(&file).await?;
+                self.file_repository.update(tenant_id, &file).await?;
 
                 Err(ProcessDocumentError::ProcessingError(e.to_string()))
             }
