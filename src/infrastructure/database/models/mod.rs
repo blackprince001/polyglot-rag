@@ -4,6 +4,7 @@ pub mod chunk_model;
 pub mod embedding_model;
 pub mod file_model;
 pub mod job_model;
+pub mod search_query_model;
 pub mod tenant_model;
 
 pub use api_key_model::*;
@@ -12,4 +13,5 @@ pub use chunk_model::*;
 pub use embedding_model::*;
 pub use file_model::*;
 pub use job_model::*;
+pub use search_query_model::*;
 pub use tenant_model::*;

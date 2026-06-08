@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use crate::application::services::SearchService;
-use crate::domain::entities::{Asset, ContentChunk, File};
+use crate::domain::entities::{Asset, ContentChunk, File, SearchQuery};
+use crate::domain::repositories::SearchQueryRepository;
 
 #[derive(Debug)]
 pub enum SearchContentError {
@@ -51,11 +52,18 @@ pub struct SearchContentResponse {
 
 pub struct SearchContentUseCase {
     search_service: Arc<SearchService>,
+    search_query_repository: Arc<dyn SearchQueryRepository>,
 }
 
 impl SearchContentUseCase {
-    pub fn new(search_service: Arc<SearchService>) -> Self {
-        Self { search_service }
+    pub fn new(
+        search_service: Arc<SearchService>,
+        search_query_repository: Arc<dyn SearchQueryRepository>,
+    ) -> Self {
+        Self {
+            search_service,
+            search_query_repository,
+        }
     }
 
     pub async fn execute(
@@ -65,7 +73,6 @@ impl SearchContentUseCase {
     ) -> Result<SearchContentResponse, SearchContentError> {
         let start_time = std::time::Instant::now();
 
-        // Validate input
         if request.query.trim().is_empty() {
             return Err(SearchContentError::ValidationError(
                 "Query cannot be empty".to_string(),
@@ -79,7 +86,6 @@ impl SearchContentUseCase {
             ));
         }
 
-        // Perform search (results come back grouped by document)
         let documents = self
             .search_service
             .search_content(
@@ -94,6 +100,21 @@ impl SearchContentUseCase {
 
         let total_chunk_matches = documents.iter().map(|d| d.chunks.len() as i32).sum();
         let search_time = start_time.elapsed().as_millis() as u64;
+
+        // Best-effort persist of the search query (fire-and-forget).
+        let search_query = SearchQuery::new(
+            tenant_id,
+            request.query.clone(),
+            total_chunk_matches,
+            None,
+            None,
+        );
+        let repo = self.search_query_repository.clone();
+        tokio::spawn(async move {
+            if let Err(e) = repo.save(&search_query).await {
+                tracing::warn!("Failed to persist search query: {}", e);
+            }
+        });
 
         Ok(SearchContentResponse {
             query: request.query,

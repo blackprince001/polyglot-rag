@@ -14,7 +14,7 @@ use crate::{
     },
     domain::repositories::{
         AssetRepository, AuthRepository, ChunkRepository, EmbeddingRepository, FileRepository,
-        JobRepository,
+        JobRepository, SearchQueryRepository,
     },
     infrastructure::{
         database::{
@@ -22,6 +22,7 @@ use crate::{
             repositories::{
                 PostgresAssetRepository, PostgresAuthRepository, PostgresChunkRepository,
                 PostgresEmbeddingRepository, PostgresFileRepository, PostgresJobRepository,
+                PostgresSearchQueryRepository,
             },
             run_migrations,
         },
@@ -34,7 +35,6 @@ use crate::{
         SearchHandler, SseHandler, TenantsHandler,
     },
 };
-
 
 pub struct AppContainer {
     // Background processing + auth (consumed by the server/middleware)
@@ -74,7 +74,9 @@ impl AppContainer {
             Arc::new(PostgresAuthRepository::new(db_pool.clone()));
         let asset_repository: Arc<dyn AssetRepository> =
             Arc::new(PostgresAssetRepository::new(db_pool.clone()));
-        let job_repository: Arc<dyn JobRepository> = Arc::new(PostgresJobRepository::new(db_pool));
+        let job_repository: Arc<dyn JobRepository> = Arc::new(PostgresJobRepository::new(db_pool.clone()));
+        let search_query_repository: Arc<dyn SearchQueryRepository> =
+            Arc::new(PostgresSearchQueryRepository::new(db_pool));
 
         // Create external services
         let embedding_provider: Arc<dyn EmbeddingProvider> =
@@ -127,7 +129,10 @@ impl AppContainer {
             document_processor.clone(),
         ));
 
-        let search_content_use_case = Arc::new(SearchContentUseCase::new(search_service.clone()));
+        let search_content_use_case = Arc::new(SearchContentUseCase::new(
+            search_service.clone(),
+            search_query_repository.clone(),
+        ));
 
         let get_file_use_case = Arc::new(GetFileUseCase::new(file_repository.clone()));
 
