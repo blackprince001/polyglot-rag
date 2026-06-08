@@ -173,7 +173,8 @@ fn map_transcript_api_error(
     match &err.reason {
         Some(reason) => match reason {
             CouldNotRetrieveTranscriptReason::TranscriptsDisabled
-            | CouldNotRetrieveTranscriptReason::NoTranscriptFound { .. } => {
+            | CouldNotRetrieveTranscriptReason::NoTranscriptFound { .. }
+            | CouldNotRetrieveTranscriptReason::YouTubeDataUnparsable(_) => {
                 DocumentExtractionError::NoTranscriptAvailable(format!(
                     "video {}: captions are unavailable, disabled, or not provided by the source",
                     video_id
@@ -248,9 +249,7 @@ impl DocumentExtractor for YoutubeExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yt_transcript_rs::errors::{
-        CouldNotRetrieveTranscript, CouldNotRetrieveTranscriptReason,
-    };
+    use yt_transcript_rs::errors::{CouldNotRetrieveTranscript, CouldNotRetrieveTranscriptReason};
 
     fn make_err(video_id: &str, reason: Option<CouldNotRetrieveTranscriptReason>) -> CouldNotRetrieveTranscript {
         CouldNotRetrieveTranscript {
@@ -262,6 +261,18 @@ mod tests {
     #[test]
     fn transcripts_disabled_is_no_transcript() {
         let err = make_err("abc", Some(CouldNotRetrieveTranscriptReason::TranscriptsDisabled));
+        let mapped = map_transcript_api_error("abc", err);
+        assert!(matches!(mapped, DocumentExtractionError::NoTranscriptAvailable(_)));
+    }
+
+    #[test]
+    fn youtube_data_unparsable_is_no_transcript() {
+        let err = make_err(
+            "abc",
+            Some(CouldNotRetrieveTranscriptReason::YouTubeDataUnparsable(
+                "No captions found in InnerTube response".to_string(),
+            )),
+        );
         let mapped = map_transcript_api_error("abc", err);
         assert!(matches!(mapped, DocumentExtractionError::NoTranscriptAvailable(_)));
     }
