@@ -45,7 +45,13 @@ utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
 docx-rs = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 quick-xml = { version = "0.36", features = ["serialize"] }
+
+openssl = { version = "0.10", features = ["vendored"] }
+pq-sys = { version = "0.7", features = ["bundled"] }
 scalar_api_reference = { version = "0.2.2", features = ["axum"] }
+
+[profile.release]
+strip = "symbols"   # drop symbols: smaller static binary / release downloads
 
 [dev-dependencies]
 proptest = "1.11.0"

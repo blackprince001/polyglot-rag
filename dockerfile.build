@@ -1,20 +1,38 @@
 # syntax=docker/dockerfile:1
 
 FROM rust:1.86.0-bookworm AS builder
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  musl-tools musl-dev \
+  cmake make perl pkg-config \
+  clang nasm \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN case "$TARGETARCH" in \
+  amd64) TRIPLE=x86_64-unknown-linux-musl ;; \
+  arm64) TRIPLE=aarch64-unknown-linux-musl ;; \
+  *) echo "unsupported TARGETARCH=$TARGETARCH" >&2; exit 1 ;; \
+  esac && echo "$TRIPLE" > /tmp/triple && rustup target add "$TRIPLE"
+
 WORKDIR /usr/src/app
 COPY . .
+
+ENV OPENSSL_STATIC=1 \
+  PQ_LIB_STATIC=1 \
+  CC_x86_64_unknown_linux_musl=musl-gcc \
+  CC_aarch64_unknown_linux_musl=musl-gcc
+
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/src/app/target \
-  cargo build --release && \
-  cp target/release/polyrag /polyrag
+  TRIPLE="$(cat /tmp/triple)" && \
+  cargo build --release --target "$TRIPLE" && \
+  cp "target/$TRIPLE/release/polyrag" /polyrag
 
 FROM scratch AS export
 COPY --from=builder /polyrag /polyrag
 
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y \
-  libpq5 \
-  libssl3 \
+RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
