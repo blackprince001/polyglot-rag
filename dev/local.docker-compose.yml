@@ -38,7 +38,7 @@ services:
     container_name: polyrag
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres/postgres
-      - EMBEDDINGS_SERVICE_URL=http://text-embeddings-inference
+      - EMBEDDINGS_SERVICE_URL=http://text-embeddings-inference:8080
       - UPLOAD_DIR=./uploads
       - PORT=9000
       - CHUNK_SIZE=200

@@ -51,7 +51,7 @@ services:
     container_name: polyrag
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres/postgres
-      - EMBEDDINGS_SERVICE_URL=http://text-embeddings-inference
+      - EMBEDDINGS_SERVICE_URL=http://text-embeddings-inference:8080
       - PORT=9000
       - RUST_BACKTRACE=1
       - STORAGE_BACKEND=s3
