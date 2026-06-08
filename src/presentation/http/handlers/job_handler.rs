@@ -13,6 +13,7 @@ use crate::application::use_cases::{
     get_job_status::{GetJobStatusError, GetJobStatusRequest},
     queue_processing_job::QueueJobError,
 };
+use crate::presentation::http::dto::error_code::ErrorCode;
 use crate::presentation::http::dto::{
     ApiResponse, CancelJobResponseDto, JobStatusDto, ProcessUrlRequestDto,
     ProcessYoutubeRequestDto, QueueJobResponseDto,
@@ -56,7 +57,7 @@ impl JobHandler {
             Err(QueueJobError::ValidationError(msg)) => Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "QUEUE_VALIDATION_FAILED".to_string(),
+                    ErrorCode::QueueValidationFailed.as_str().to_string(),
                     msg,
                     None,
                 )),
@@ -64,18 +65,14 @@ impl JobHandler {
             Err(QueueJobError::FileNotFound(id)) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "FILE_NOT_FOUND".to_string(),
+                    ErrorCode::FileNotFound.as_str().to_string(),
                     format!("File with ID {} not found", id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "QUEUE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("queue_failed", e)),
             )),
         }
     }
@@ -99,7 +96,7 @@ impl JobHandler {
             Err(QueueJobError::ValidationError(msg)) => Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "QUEUE_VALIDATION_FAILED".to_string(),
+                    ErrorCode::QueueValidationFailed.as_str().to_string(),
                     msg,
                     None,
                 )),
@@ -107,18 +104,14 @@ impl JobHandler {
             Err(QueueJobError::FileNotFound(id)) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "FILE_NOT_FOUND".to_string(),
+                    ErrorCode::FileNotFound.as_str().to_string(),
                     format!("File with ID {} not found", id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "QUEUE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("queue_failed", e)),
             )),
         }
     }
@@ -142,7 +135,7 @@ impl JobHandler {
             Err(QueueJobError::ValidationError(msg)) => Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "QUEUE_VALIDATION_FAILED".to_string(),
+                    ErrorCode::QueueValidationFailed.as_str().to_string(),
                     msg,
                     None,
                 )),
@@ -150,18 +143,14 @@ impl JobHandler {
             Err(QueueJobError::FileNotFound(id)) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "FILE_NOT_FOUND".to_string(),
+                    ErrorCode::FileNotFound.as_str().to_string(),
                     format!("File with ID {} not found", id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "QUEUE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("queue_failed", e)),
             )),
         }
     }
@@ -186,18 +175,14 @@ impl JobHandler {
             Err(GetJobStatusError::JobNotFound(id)) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "JOB_NOT_FOUND".to_string(),
+                    ErrorCode::JobNotFound.as_str().to_string(),
                     format!("Job with ID {} not found", id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "JOB_LOOKUP_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("job_lookup_failed", e)),
             )),
         }
     }
@@ -220,11 +205,7 @@ impl JobHandler {
             }
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "FETCH_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("fetch_failed", e)),
             )),
         }
     }
@@ -245,11 +226,7 @@ impl JobHandler {
             }
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "FETCH_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("fetch_failed", e)),
             )),
         }
     }
@@ -274,7 +251,7 @@ impl JobHandler {
             Err(CancelJobError::JobNotFound(id)) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "JOB_NOT_FOUND".to_string(),
+                    ErrorCode::JobNotFound.as_str().to_string(),
                     format!("Job with ID {} not found", id),
                     None,
                 )),
@@ -282,18 +259,14 @@ impl JobHandler {
             Err(CancelJobError::JobNotCancellable(msg)) => Ok((
                 StatusCode::CONFLICT,
                 Json(ApiResponse::error(
-                    "JOB_NOT_CANCELLABLE".to_string(),
+                    ErrorCode::JobNotCancellable.as_str().to_string(),
                     msg,
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "CANCEL_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("cancel_failed", e)),
             )),
         }
     }

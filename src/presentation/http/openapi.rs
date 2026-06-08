@@ -28,10 +28,10 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
 use crate::presentation::http::dto::{
-    ApiKeyCreatedDto, ApiKeyListResponseDto, ApiKeySummaryDto, ApiResponse, AssetDto,
+    ApiKeyCreatedDto, ApiKeyListResponseDto, ApiKeyScope, ApiKeySummaryDto, ApiResponse, AssetDto,
     CancelJobResponseDto, CompleteUploadResponseDto, ContentProcessingResponse,
     CreateApiKeyRequest, CreateTenantRequest, DependencyStatus, DocumentChunkDto,
-    DocumentWithChunksDto, FileDetailResponseDto, FileListResponseDto, FileResponseDto,
+    DocumentWithChunksDto, ErrorCode, FileDetailResponseDto, FileListResponseDto, FileResponseDto,
     HeaderPairDto, HealthResponseDto, JobResultDto, JobStatusDto, JobTypeDto, MessageResponseDto,
     PaginationDto, PaginationMetaDto, ProcessFileResponseDto, ProcessTextRequest,
     ProcessUrlRequest, ProcessUrlRequestDto, ProcessYoutubeRequest, ProcessYoutubeRequestDto,
@@ -73,10 +73,10 @@ impl Modify for ApiKeySecurity {
         description = "REST API for PolyglotRAG — a multi-source personal knowledge retrieval engine. \
             All data endpoints require an API key resolved to a tenant (Authorization: Bearer <key> \
             or X-API-Key). The /scalar UI and /health endpoints are public.",
-        contact(name = "PolyglotRAG", url = "https://github.com/anomalyco/opencode"),
+        contact(name = "blackprince001", url = "https://github.com/blackprince001"),
     ),
     servers(
-        (url = "http://localhost:3000", description = "Local development server"),
+        (url = "", description = "Local development server"),
     ),
     modifiers(&ApiKeySecurity),
     components(
@@ -126,6 +126,7 @@ impl Modify for ApiKeySecurity {
             DocumentChunkDto,
             DocumentWithChunksDto,
             AssetDto,
+            ErrorCode,
             SimilaritySearchRequest,
             SimilaritySearchResponse,
             ProcessUrlRequest,
@@ -139,6 +140,7 @@ impl Modify for ApiKeySecurity {
             TenantListResponseDto,
             CreateTenantRequest,
             CreateApiKeyRequest,
+            ApiKeyScope,
             ApiKeyCreatedDto,
             ApiKeySummaryDto,
             ApiKeyListResponseDto,
@@ -207,7 +209,20 @@ pub struct ApiDoc;
 impl ApiDoc {
     pub fn openapi_json() -> &'static str {
         static CACHE: LazyLock<String> = LazyLock::new(|| {
-            let doc = <ApiDoc as utoipa::OpenApi>::openapi();
+            let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+            let port: u16 = std::env::var("PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(3000);
+            let server_url = format!("http://{}:{}", host, port);
+
+            let mut doc = <ApiDoc as utoipa::OpenApi>::openapi();
+            doc.servers = Some(vec![
+                utoipa::openapi::server::ServerBuilder::new()
+                    .url(server_url)
+                    .description(Some("Dynamic server URL from HOST/PORT env"))
+                    .build(),
+            ]);
             match doc.to_pretty_json() {
                 Ok(s) => s,
                 Err(e) => {

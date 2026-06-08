@@ -10,6 +10,7 @@ use crate::application::use_cases::{
     SearchContentUseCase,
     search_content::{SearchContentError, SearchContentRequest},
 };
+use crate::presentation::http::dto::error_code::ErrorCode;
 use crate::presentation::http::dto::{ApiResponse, SearchRequestDto, SearchResponseDto};
 use crate::presentation::http::middleware::TenantContext;
 
@@ -31,7 +32,7 @@ impl SearchHandler {
             return Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "EMPTY_QUERY".to_string(),
+                    ErrorCode::EmptyQuery.as_str().to_string(),
                     "Query cannot be empty".to_string(),
                     None,
                 )),
@@ -60,18 +61,14 @@ impl SearchHandler {
             Err(SearchContentError::ValidationError(msg)) => Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "SEARCH_VALIDATION_FAILED".to_string(),
+                    ErrorCode::SearchValidationFailed.as_str().to_string(),
                     msg,
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "SEARCH_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("search_failed", e)),
             )),
         }
     }

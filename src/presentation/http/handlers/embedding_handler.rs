@@ -13,6 +13,7 @@ use crate::application::services::SearchService;
 use crate::domain::repositories::EmbeddingRepository;
 use crate::presentation::http::dto::ApiResponse;
 use crate::presentation::http::dto::document_dto::DocumentWithChunksDto;
+use crate::presentation::http::dto::error_code::ErrorCode;
 use crate::presentation::http::middleware::TenantContext;
 
 #[derive(serde::Deserialize, ToSchema)]
@@ -51,7 +52,11 @@ impl EmbeddingHandler {
         tenant: TenantContext,
         Path(embedding_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
-        match handler.embedding_repository.find_by_id(tenant.tenant_id, embedding_id).await {
+        match handler
+            .embedding_repository
+            .find_by_id(tenant.tenant_id, embedding_id)
+            .await
+        {
             Ok(Some(embedding)) => Ok((
                 StatusCode::OK,
                 Json(ApiResponse::success(serde_json::json!({
@@ -66,18 +71,14 @@ impl EmbeddingHandler {
             Ok(None) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "EMBEDDING_NOT_FOUND".to_string(),
+                    ErrorCode::EmbeddingNotFound.as_str().to_string(),
                     format!("Embedding with ID {} not found", embedding_id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DATABASE_ERROR".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("database_error", e)),
             )),
         }
     }
@@ -106,18 +107,14 @@ impl EmbeddingHandler {
             Ok(None) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "EMBEDDING_NOT_FOUND".to_string(),
+                    ErrorCode::EmbeddingNotFound.as_str().to_string(),
                     format!("No embedding found for chunk ID {}", chunk_id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DATABASE_ERROR".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("database_error", e)),
             )),
         }
     }
@@ -127,7 +124,11 @@ impl EmbeddingHandler {
         tenant: TenantContext,
         Path(file_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
-        match handler.embedding_repository.find_by_file_id(tenant.tenant_id, file_id).await {
+        match handler
+            .embedding_repository
+            .find_by_file_id(tenant.tenant_id, file_id)
+            .await
+        {
             Ok(embeddings) => {
                 let embeddings_dto: Vec<serde_json::Value> = embeddings
                     .into_iter()
@@ -154,11 +155,7 @@ impl EmbeddingHandler {
             }
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DATABASE_ERROR".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("database_error", e)),
             )),
         }
     }
@@ -173,7 +170,7 @@ impl EmbeddingHandler {
             return Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "INVALID_LIMIT".to_string(),
+                    ErrorCode::InvalidLimit.as_str().to_string(),
                     "limit must be between 1 and 100".to_string(),
                     None,
                 )),
@@ -196,11 +193,7 @@ impl EmbeddingHandler {
             Err(e) => {
                 return Ok((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiResponse::error(
-                        "SEARCH_FAILED".to_string(),
-                        e.to_string(),
-                        None,
-                    )),
+                    Json(ApiResponse::internal_error("search_failed", e)),
                 ));
             }
         };
@@ -226,7 +219,11 @@ impl EmbeddingHandler {
         tenant: TenantContext,
         Path(embedding_id): Path<Uuid>,
     ) -> Result<impl IntoResponse, StatusCode> {
-        match handler.embedding_repository.delete(tenant.tenant_id, embedding_id).await {
+        match handler
+            .embedding_repository
+            .delete(tenant.tenant_id, embedding_id)
+            .await
+        {
             Ok(true) => Ok((
                 StatusCode::OK,
                 Json(ApiResponse::success(
@@ -236,18 +233,14 @@ impl EmbeddingHandler {
             Ok(false) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "EMBEDDING_NOT_FOUND".to_string(),
+                    ErrorCode::EmbeddingNotFound.as_str().to_string(),
                     format!("Embedding with ID {} not found", embedding_id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DELETE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("delete_failed", e)),
             )),
         }
     }
@@ -271,18 +264,14 @@ impl EmbeddingHandler {
             Ok(false) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "EMBEDDING_NOT_FOUND".to_string(),
+                    ErrorCode::EmbeddingNotFound.as_str().to_string(),
                     format!("No embeddings found for chunk ID {}", chunk_id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DELETE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("delete_failed", e)),
             )),
         }
     }
@@ -306,11 +295,7 @@ impl EmbeddingHandler {
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DELETE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("delete_failed", e)),
             )),
         }
     }
@@ -328,11 +313,7 @@ impl EmbeddingHandler {
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "COUNT_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("count_failed", e)),
             )),
         }
     }

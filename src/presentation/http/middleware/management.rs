@@ -6,6 +6,7 @@ use axum::{
 };
 
 use crate::presentation::http::dto::ApiResponse;
+use crate::presentation::http::dto::error_code::ErrorCode;
 
 #[derive(Clone)]
 pub struct ManagementKeyConfig {
@@ -36,7 +37,7 @@ fn service_unavailable(message: &str) -> Response {
     (
         StatusCode::SERVICE_UNAVAILABLE,
         axum::Json(ApiResponse::<()>::error(
-            "MANAGEMENT_DISABLED".to_string(),
+            ErrorCode::ManagementDisabled.as_str().to_string(),
             message.to_string(),
             None,
         )),
@@ -48,7 +49,7 @@ fn unauthorized(message: &str) -> Response {
     (
         StatusCode::UNAUTHORIZED,
         axum::Json(ApiResponse::<()>::error(
-            "UNAUTHORIZED".to_string(),
+            ErrorCode::Unauthorized.as_str().to_string(),
             message.to_string(),
             None,
         )),

@@ -7,6 +7,7 @@ use crate::application::use_cases::{
     process_url_direct::{ProcessUrlDirectError, ProcessUrlDirectRequest},
     process_youtube_direct::{ProcessYoutubeDirectError, ProcessYoutubeDirectRequest},
 };
+use crate::presentation::http::dto::error_code::ErrorCode;
 use crate::presentation::http::dto::{
     ApiResponse, ContentProcessingResponse, ProcessTextRequest, ProcessUrlRequest,
     ProcessYoutubeRequest,
@@ -42,7 +43,7 @@ impl ContentHandler {
             return Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "EMPTY_URL".to_string(),
+                    ErrorCode::EmptyUrl.as_str().to_string(),
                     "URL cannot be empty".to_string(),
                     None,
                 )),
@@ -66,31 +67,29 @@ impl ContentHandler {
                 let dto = ContentProcessingResponse::from(response);
                 Ok((StatusCode::ACCEPTED, Json(ApiResponse::success(dto))))
             }
-            Err(e) => {
-                let (status, error_code) = match e {
-                    ProcessUrlDirectError::InvalidUrl(_) => {
-                        (StatusCode::BAD_REQUEST, "INVALID_URL")
-                    }
-                    ProcessUrlDirectError::ValidationError(_) => {
-                        (StatusCode::BAD_REQUEST, "VALIDATION_ERROR")
-                    }
-                    ProcessUrlDirectError::RepositoryError(_) => {
-                        (StatusCode::INTERNAL_SERVER_ERROR, "REPOSITORY_ERROR")
-                    }
-                    ProcessUrlDirectError::QueueError(_) => {
-                        (StatusCode::INTERNAL_SERVER_ERROR, "QUEUE_ERROR")
-                    }
-                };
-
-                Ok((
-                    status,
+            Err(e) => Ok(match e {
+                ProcessUrlDirectError::InvalidUrl(msg) => (
+                    StatusCode::BAD_REQUEST,
                     Json(ApiResponse::error(
-                        error_code.to_string(),
-                        e.to_string(),
+                        ErrorCode::InvalidUrl.as_str().to_string(),
+                        msg,
                         None,
                     )),
-                ))
-            }
+                ),
+                ProcessUrlDirectError::ValidationError(msg) => (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiResponse::error(
+                        ErrorCode::ValidationError.as_str().to_string(),
+                        msg,
+                        None,
+                    )),
+                ),
+                // Repository/queue failures are internal — log full detail, return generic.
+                other => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::internal_error("process_url", other)),
+                ),
+            }),
         }
     }
 
@@ -104,7 +103,7 @@ impl ContentHandler {
             return Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "EMPTY_URL".to_string(),
+                    ErrorCode::EmptyUrl.as_str().to_string(),
                     "YouTube URL cannot be empty".to_string(),
                     None,
                 )),
@@ -116,7 +115,7 @@ impl ContentHandler {
             return Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "INVALID_YOUTUBE_URL".to_string(),
+                    ErrorCode::InvalidYoutubeUrl.as_str().to_string(),
                     "URL must be a valid YouTube URL".to_string(),
                     None,
                 )),
@@ -128,9 +127,6 @@ impl ContentHandler {
             url: request_dto.url,
             filename: request_dto.filename,
             extract_timestamps: request_dto.extract_timestamps.unwrap_or(true),
-            language_preference: request_dto
-                .language_preference
-                .unwrap_or_else(|| vec!["en".to_string()]),
             auto_process: request_dto.auto_process.unwrap_or(true),
         };
 
@@ -144,31 +140,28 @@ impl ContentHandler {
                 let dto = ContentProcessingResponse::from(response);
                 Ok((StatusCode::ACCEPTED, Json(ApiResponse::success(dto))))
             }
-            Err(e) => {
-                let (status, error_code) = match e {
-                    ProcessYoutubeDirectError::InvalidUrl(_) => {
-                        (StatusCode::BAD_REQUEST, "INVALID_YOUTUBE_URL")
-                    }
-                    ProcessYoutubeDirectError::ValidationError(_) => {
-                        (StatusCode::BAD_REQUEST, "VALIDATION_ERROR")
-                    }
-                    ProcessYoutubeDirectError::RepositoryError(_) => {
-                        (StatusCode::INTERNAL_SERVER_ERROR, "REPOSITORY_ERROR")
-                    }
-                    ProcessYoutubeDirectError::QueueError(_) => {
-                        (StatusCode::INTERNAL_SERVER_ERROR, "QUEUE_ERROR")
-                    }
-                };
-
-                Ok((
-                    status,
+            Err(e) => Ok(match e {
+                ProcessYoutubeDirectError::InvalidUrl(msg) => (
+                    StatusCode::BAD_REQUEST,
                     Json(ApiResponse::error(
-                        error_code.to_string(),
-                        e.to_string(),
+                        ErrorCode::InvalidYoutubeUrl.as_str().to_string(),
+                        msg,
                         None,
                     )),
-                ))
-            }
+                ),
+                ProcessYoutubeDirectError::ValidationError(msg) => (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiResponse::error(
+                        ErrorCode::ValidationError.as_str().to_string(),
+                        msg,
+                        None,
+                    )),
+                ),
+                other => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::internal_error("process_youtube", other)),
+                ),
+            }),
         }
     }
 
@@ -181,7 +174,7 @@ impl ContentHandler {
             return Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "EMPTY_TEXT".to_string(),
+                    ErrorCode::EmptyText.as_str().to_string(),
                     "text cannot be empty".to_string(),
                     None,
                 )),
@@ -203,31 +196,20 @@ impl ContentHandler {
                 let dto = ContentProcessingResponse::from(response);
                 Ok((StatusCode::ACCEPTED, Json(ApiResponse::success(dto))))
             }
-            Err(e) => {
-                let (status, error_code) = match e {
-                    ProcessTextDirectError::ValidationError(_) => {
-                        (StatusCode::BAD_REQUEST, "VALIDATION_ERROR")
-                    }
-                    ProcessTextDirectError::StorageError(_) => {
-                        (StatusCode::INTERNAL_SERVER_ERROR, "STORAGE_ERROR")
-                    }
-                    ProcessTextDirectError::RepositoryError(_) => {
-                        (StatusCode::INTERNAL_SERVER_ERROR, "REPOSITORY_ERROR")
-                    }
-                    ProcessTextDirectError::QueueError(_) => {
-                        (StatusCode::INTERNAL_SERVER_ERROR, "QUEUE_ERROR")
-                    }
-                };
-
-                Ok((
-                    status,
+            Err(e) => Ok(match e {
+                ProcessTextDirectError::ValidationError(msg) => (
+                    StatusCode::BAD_REQUEST,
                     Json(ApiResponse::error(
-                        error_code.to_string(),
-                        e.to_string(),
+                        ErrorCode::ValidationError.as_str().to_string(),
+                        msg,
                         None,
                     )),
-                ))
-            }
+                ),
+                other => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::internal_error("process_text", other)),
+                ),
+            }),
         }
     }
 }

@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::domain::repositories::auth_repository::AuthRepository;
 use crate::infrastructure::auth::key::generate_api_key;
+use crate::presentation::http::dto::error_code::ErrorCode;
 use crate::presentation::http::dto::{
     ApiKeyCreatedDto, ApiKeyListResponseDto, ApiKeySummaryDto, ApiResponse, CreateApiKeyRequest,
     CreateTenantRequest, TenantListResponseDto, TenantResponseDto,
@@ -33,7 +34,7 @@ impl TenantsHandler {
             return Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::<TenantResponseDto>::error(
-                    "VALIDATION_ERROR".to_string(),
+                    ErrorCode::ValidationError.as_str().to_string(),
                     "Tenant name must not be empty".to_string(),
                     None,
                 )),
@@ -47,10 +48,9 @@ impl TenantsHandler {
             }
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::<TenantResponseDto>::error(
-                    "CREATE_TENANT_FAILED".to_string(),
-                    e.to_string(),
-                    None,
+                Json(ApiResponse::<TenantResponseDto>::internal_error(
+                    "create_tenant_failed",
+                    e,
                 )),
             )),
         }
@@ -68,10 +68,9 @@ impl TenantsHandler {
             }
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::<TenantListResponseDto>::error(
-                    "LIST_TENANTS_FAILED".to_string(),
-                    e.to_string(),
-                    None,
+                Json(ApiResponse::<TenantListResponseDto>::internal_error(
+                    "list_tenants_failed",
+                    e,
                 )),
             )),
         }
@@ -87,7 +86,7 @@ impl TenantsHandler {
                 return Ok((
                     StatusCode::NOT_FOUND,
                     Json(ApiResponse::<ApiKeyCreatedDto>::error(
-                        "TENANT_NOT_FOUND".to_string(),
+                        ErrorCode::TenantNotFound.as_str().to_string(),
                         format!("Active tenant with ID {} not found", tenant_id),
                         None,
                     )),
@@ -96,10 +95,9 @@ impl TenantsHandler {
             Err(e) => {
                 return Ok((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiResponse::<ApiKeyCreatedDto>::error(
-                        "TENANT_LOOKUP_FAILED".to_string(),
-                        e.to_string(),
-                        None,
+                    Json(ApiResponse::<ApiKeyCreatedDto>::internal_error(
+                        "tenant_lookup_failed",
+                        e,
                     )),
                 ));
             }
@@ -107,7 +105,13 @@ impl TenantsHandler {
         }
 
         let key = generate_api_key();
-        let scopes = req.scopes.unwrap_or_default();
+
+        let scopes: Vec<String> = req
+            .scopes
+            .unwrap_or_default()
+            .iter()
+            .map(|s| s.as_str().to_string())
+            .collect();
         let name = req.name.as_deref();
 
         match handler
@@ -130,10 +134,9 @@ impl TenantsHandler {
             }
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::<ApiKeyCreatedDto>::error(
-                    "CREATE_API_KEY_FAILED".to_string(),
-                    e.to_string(),
-                    None,
+                Json(ApiResponse::<ApiKeyCreatedDto>::internal_error(
+                    "create_api_key_failed",
+                    e,
                 )),
             )),
         }
@@ -152,10 +155,9 @@ impl TenantsHandler {
             }
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::<ApiKeyListResponseDto>::error(
-                    "LIST_API_KEYS_FAILED".to_string(),
-                    e.to_string(),
-                    None,
+                Json(ApiResponse::<ApiKeyListResponseDto>::internal_error(
+                    "list_api_keys_failed",
+                    e,
                 )),
             )),
         }
@@ -177,17 +179,16 @@ impl TenantsHandler {
             Ok(false) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::<String>::error(
-                    "API_KEY_NOT_FOUND".to_string(),
+                    ErrorCode::ApiKeyNotFound.as_str().to_string(),
                     format!("No active API key {} for tenant {}", api_key_id, tenant_id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::<String>::error(
-                    "REVOKE_API_KEY_FAILED".to_string(),
-                    e.to_string(),
-                    None,
+                Json(ApiResponse::<String>::internal_error(
+                    "revoke_api_key_failed",
+                    e,
                 )),
             )),
         }

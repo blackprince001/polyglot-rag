@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::domain::repositories::AuthRepository;
 use crate::infrastructure::auth::key::hash_key;
 use crate::presentation::http::dto::ApiResponse;
+use crate::presentation::http::dto::error_code::ErrorCode;
 
 #[derive(Debug, Clone)]
 pub struct TenantContext {
@@ -20,7 +21,7 @@ fn unauthorized(message: &str) -> Response {
     (
         StatusCode::UNAUTHORIZED,
         axum::Json(ApiResponse::<()>::error(
-            "UNAUTHORIZED".to_string(),
+            ErrorCode::Unauthorized.as_str().to_string(),
             message.to_string(),
             None,
         )),
@@ -70,7 +71,7 @@ pub async fn require_api_key(
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 axum::Json(ApiResponse::<()>::error(
-                    "AUTH_ERROR".to_string(),
+                    ErrorCode::AuthError.as_str().to_string(),
                     "Authentication backend error".to_string(),
                     None,
                 )),

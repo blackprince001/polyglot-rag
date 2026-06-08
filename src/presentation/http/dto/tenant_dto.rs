@@ -10,10 +10,32 @@ pub struct CreateTenantRequest {
     pub name: String,
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiKeyScope {
+    /// Read-only access (list/get/search).
+    Read,
+    /// Create/modify/delete content (upload, process, delete).
+    Write,
+    /// Full access, including tenant-scoped administration.
+    Admin,
+}
+
+impl ApiKeyScope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ApiKeyScope::Read => "read",
+            ApiKeyScope::Write => "write",
+            ApiKeyScope::Admin => "admin",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateApiKeyRequest {
     pub name: Option<String>,
-    pub scopes: Option<Vec<String>>,
+    pub scopes: Option<Vec<ApiKeyScope>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -83,4 +105,36 @@ pub struct ApiKeyCreatedDto {
     pub raw_key: String,
     pub key_hash: String,
     pub created_at: DateTime<Utc>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_api_key_request_accepts_known_scopes() {
+        let json = r#"{"name":"ci","scopes":["read","write","admin"]}"#;
+        let req: CreateApiKeyRequest = serde_json::from_str(json).expect("valid scopes parse");
+        let scopes = req.scopes.unwrap();
+        assert_eq!(
+            scopes,
+            vec![ApiKeyScope::Read, ApiKeyScope::Write, ApiKeyScope::Admin]
+        );
+    }
+
+    #[test]
+    fn create_api_key_request_rejects_unknown_scope() {
+        // Enforcement: an unrecognized scope fails deserialization (=> 400).
+        let json = r#"{"scopes":["read","superuser"]}"#;
+        assert!(serde_json::from_str::<CreateApiKeyRequest>(json).is_err());
+    }
+
+    #[test]
+    fn scope_wire_form_is_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&ApiKeyScope::Admin).unwrap(),
+            "\"admin\""
+        );
+        assert_eq!(ApiKeyScope::Write.as_str(), "write");
+    }
 }

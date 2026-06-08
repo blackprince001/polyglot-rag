@@ -21,6 +21,7 @@ use crate::application::use_cases::{
 };
 use crate::domain::repositories::{AssetRepository, FileRepository};
 use crate::presentation::http::dto::content_dto::UploadWithProcessingResponse;
+use crate::presentation::http::dto::error_code::ErrorCode;
 use crate::presentation::http::dto::{
     ApiResponse, PaginationDto, PaginationMetaDto,
     file_dto::{
@@ -124,7 +125,7 @@ impl FileHandler {
                     return Ok((
                         StatusCode::BAD_REQUEST,
                         Json(ApiResponse::error(
-                            "UPLOAD_VALIDATION_FAILED".to_string(),
+                            ErrorCode::UploadValidationFailed.as_str().to_string(),
                             msg,
                             None,
                         )),
@@ -133,11 +134,7 @@ impl FileHandler {
                 Err(e) => {
                     return Ok((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::error(
-                            "UPLOAD_FAILED".to_string(),
-                            e.to_string(),
-                            None,
-                        )),
+                        Json(ApiResponse::internal_error("upload_failed", e)),
                     ));
                 }
             }
@@ -146,7 +143,7 @@ impl FileHandler {
         Ok((
             StatusCode::BAD_REQUEST,
             Json(ApiResponse::error(
-                "NO_FILE_PROVIDED".to_string(),
+                ErrorCode::NoFileProvided.as_str().to_string(),
                 "No file provided in the request".to_string(),
                 None,
             )),
@@ -189,17 +186,16 @@ impl FileHandler {
             Err(ListFilesError::ValidationError(msg)) => Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::<FileListResponseDto>::error(
-                    "LIST_VALIDATION_FAILED".to_string(),
+                    ErrorCode::ListValidationFailed.as_str().to_string(),
                     msg,
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::<FileListResponseDto>::error(
-                    "LIST_FAILED".to_string(),
-                    e.to_string(),
-                    None,
+                Json(ApiResponse::<FileListResponseDto>::internal_error(
+                    "list_failed",
+                    e,
                 )),
             )),
         }
@@ -227,7 +223,7 @@ impl FileHandler {
             Err(ProcessDocumentError::FileNotFound(id)) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::<ProcessFileResponseDto>::error(
-                    "FILE_NOT_FOUND".to_string(),
+                    ErrorCode::FileNotFound.as_str().to_string(),
                     format!("File with ID {} not found", id),
                     None,
                 )),
@@ -235,17 +231,16 @@ impl FileHandler {
             Err(ProcessDocumentError::FileNotProcessable(msg)) => Ok((
                 StatusCode::UNPROCESSABLE_ENTITY,
                 Json(ApiResponse::<ProcessFileResponseDto>::error(
-                    "FILE_NOT_PROCESSABLE".to_string(),
+                    ErrorCode::FileNotProcessable.as_str().to_string(),
                     msg,
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::<ProcessFileResponseDto>::error(
-                    "PROCESSING_FAILED".to_string(),
-                    e.to_string(),
-                    None,
+                Json(ApiResponse::<ProcessFileResponseDto>::internal_error(
+                    "processing_failed",
+                    e,
                 )),
             )),
         }
@@ -270,18 +265,14 @@ impl FileHandler {
             Err(GetFileError::FileNotFound(id)) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "FILE_NOT_FOUND".to_string(),
+                    ErrorCode::FileNotFound.as_str().to_string(),
                     format!("File with ID {} not found", id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "FILE_LOOKUP_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("file_lookup_failed", e)),
             )),
         }
     }
@@ -323,15 +314,15 @@ impl FileHandler {
             }
             Err(request_upload_url::RequestUploadUrlError::ValidationError(msg)) => Ok((
                 StatusCode::BAD_REQUEST,
-                Json(ApiResponse::error("INVALID_REQUEST".to_string(), msg, None)),
+                Json(ApiResponse::error(
+                    ErrorCode::InvalidRequest.as_str().to_string(),
+                    msg,
+                    None,
+                )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "UPLOAD_URL_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("upload_url_failed", e)),
             )),
         }
     }
@@ -358,18 +349,14 @@ impl FileHandler {
             Err(complete_upload::CompleteUploadError::FileNotFound(id)) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "FILE_NOT_FOUND".to_string(),
+                    ErrorCode::FileNotFound.as_str().to_string(),
                     format!("File with ID {} not found", id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "COMPLETE_UPLOAD_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("complete_upload_failed", e)),
             )),
         }
     }
@@ -390,7 +377,7 @@ impl FileHandler {
                 return Ok((
                     StatusCode::NOT_FOUND,
                     Json(ApiResponse::<()>::error(
-                        "FILE_NOT_FOUND".to_string(),
+                        ErrorCode::FileNotFound.as_str().to_string(),
                         format!("File with ID {} not found", file_id),
                         None,
                     )),
@@ -400,11 +387,7 @@ impl FileHandler {
             Err(e) => {
                 return Ok((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiResponse::<()>::error(
-                        "FILE_LOOKUP_FAILED".to_string(),
-                        e.to_string(),
-                        None,
-                    )),
+                    Json(ApiResponse::<()>::internal_error("file_lookup_failed", e)),
                 )
                     .into_response());
             }
@@ -421,11 +404,7 @@ impl FileHandler {
                 Err(e) => {
                     return Ok((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::<()>::error(
-                            "STREAM_FAILED".to_string(),
-                            e.to_string(),
-                            None,
-                        )),
+                        Json(ApiResponse::<()>::internal_error("stream_failed", e)),
                     )
                         .into_response());
                 }
@@ -450,11 +429,7 @@ impl FileHandler {
                 Err(e) => {
                     return Ok((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::<()>::error(
-                            "PRESIGN_FAILED".to_string(),
-                            e.to_string(),
-                            None,
-                        )),
+                        Json(ApiResponse::<()>::internal_error("presign_failed", e)),
                     )
                         .into_response());
                 }
@@ -486,7 +461,7 @@ impl FileHandler {
                 return Ok((
                     StatusCode::NOT_FOUND,
                     Json(ApiResponse::<()>::error(
-                        "ASSET_NOT_FOUND".to_string(),
+                        ErrorCode::AssetNotFound.as_str().to_string(),
                         format!("Asset {} not found for file {}", asset_id, file_id),
                         None,
                     )),
@@ -496,11 +471,7 @@ impl FileHandler {
             Err(e) => {
                 return Ok((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiResponse::<()>::error(
-                        "ASSET_LOOKUP_FAILED".to_string(),
-                        e.to_string(),
-                        None,
-                    )),
+                    Json(ApiResponse::<()>::internal_error("asset_lookup_failed", e)),
                 )
                     .into_response());
             }
@@ -517,11 +488,7 @@ impl FileHandler {
                 Err(e) => {
                     return Ok((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::<()>::error(
-                            "STREAM_FAILED".to_string(),
-                            e.to_string(),
-                            None,
-                        )),
+                        Json(ApiResponse::<()>::internal_error("stream_failed", e)),
                     )
                         .into_response());
                 }
@@ -543,11 +510,7 @@ impl FileHandler {
                 Err(e) => {
                     return Ok((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiResponse::<()>::error(
-                            "PRESIGN_FAILED".to_string(),
-                            e.to_string(),
-                            None,
-                        )),
+                        Json(ApiResponse::<()>::internal_error("presign_failed", e)),
                     )
                         .into_response());
                 }
@@ -577,7 +540,7 @@ impl FileHandler {
                 return Ok((
                     StatusCode::NOT_FOUND,
                     Json(ApiResponse::error(
-                        "FILE_NOT_FOUND".to_string(),
+                        ErrorCode::FileNotFound.as_str().to_string(),
                         format!("File with ID {} not found", file_id),
                         None,
                     )),
@@ -586,11 +549,7 @@ impl FileHandler {
             Err(e) => {
                 return Ok((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiResponse::error(
-                        "DATABASE_ERROR".to_string(),
-                        e.to_string(),
-                        None,
-                    )),
+                    Json(ApiResponse::internal_error("database_error", e)),
                 ));
             }
         };
@@ -608,11 +567,7 @@ impl FileHandler {
             }
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "UPDATE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("update_failed", e)),
             )),
         }
     }
@@ -674,18 +629,14 @@ impl FileHandler {
             Ok(false) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "FILE_NOT_FOUND".to_string(),
+                    ErrorCode::FileNotFound.as_str().to_string(),
                     format!("File with ID {} not found", file_id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DELETE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("delete_failed", e)),
             )),
         }
     }
@@ -703,11 +654,7 @@ impl FileHandler {
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "COUNT_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("count_failed", e)),
             )),
         }
     }
@@ -795,17 +742,18 @@ impl FileHandler {
             Err(UploadWithProcessingError::UploadError(msg)) => Ok((
                 StatusCode::BAD_REQUEST,
                 Json(ApiResponse::error(
-                    "UPLOAD_WITH_PROCESSING_VALIDATION_FAILED".to_string(),
+                    ErrorCode::UploadWithProcessingValidationFailed
+                        .as_str()
+                        .to_string(),
                     msg,
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "UPLOAD_WITH_PROCESSING_FAILED".to_string(),
-                    e.to_string(),
-                    None,
+                Json(ApiResponse::internal_error(
+                    "upload_with_processing_failed",
+                    e,
                 )),
             )),
         }

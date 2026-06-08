@@ -11,6 +11,7 @@ use crate::application::use_cases::GetFileChunksUseCase;
 use crate::application::use_cases::get_file_chunks::{GetFileChunksError, GetFileChunksRequest};
 use crate::domain::repositories::ChunkRepository;
 use crate::presentation::http::dto::document_dto::{DocumentChunkDto, DocumentWithChunksDto};
+use crate::presentation::http::dto::error_code::ErrorCode;
 use crate::presentation::http::dto::{ApiResponse, PaginationDto};
 use crate::presentation::http::middleware::TenantContext;
 
@@ -54,18 +55,14 @@ impl ChunkHandler {
             Ok(None) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "CHUNK_NOT_FOUND".to_string(),
+                    ErrorCode::ChunkNotFound.as_str().to_string(),
                     format!("Chunk with ID {} not found", chunk_id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DATABASE_ERROR".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("database_error", e)),
             )),
         }
     }
@@ -96,18 +93,14 @@ impl ChunkHandler {
             Err(GetFileChunksError::FileNotFound(id)) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "FILE_NOT_FOUND".to_string(),
+                    ErrorCode::FileNotFound.as_str().to_string(),
                     format!("File with ID {} not found", id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "CHUNKS_NOT_FOUND".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("chunks_not_found", e)),
             )),
         }
     }
@@ -131,11 +124,7 @@ impl ChunkHandler {
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "COUNT_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("count_failed", e)),
             )),
         }
     }
@@ -159,18 +148,14 @@ impl ChunkHandler {
             Ok(false) => Ok((
                 StatusCode::NOT_FOUND,
                 Json(ApiResponse::error(
-                    "CHUNK_NOT_FOUND".to_string(),
+                    ErrorCode::ChunkNotFound.as_str().to_string(),
                     format!("Chunk with ID {} not found", chunk_id),
                     None,
                 )),
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DELETE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("delete_failed", e)),
             )),
         }
     }
@@ -194,11 +179,7 @@ impl ChunkHandler {
             )),
             Err(e) => Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(
-                    "DELETE_FAILED".to_string(),
-                    e.to_string(),
-                    None,
-                )),
+                Json(ApiResponse::internal_error("delete_failed", e)),
             )),
         }
     }
