@@ -88,7 +88,10 @@ impl QueueProcessingJobUseCase {
             .ok_or_else(|| QueueJobError::FileNotFound(request.file_id))?;
 
         // Check if there's already an active job for this file
-        let existing_jobs = self.job_repository.find_by_file_id(tenant_id, file.id()).await?;
+        let existing_jobs = self
+            .job_repository
+            .find_by_file_id(tenant_id, file.id())
+            .await?;
         if existing_jobs.iter().any(|job| job.is_active()) {
             return Err(QueueJobError::ValidationError(
                 "File already has an active processing job".to_string(),
@@ -97,7 +100,9 @@ impl QueueProcessingJobUseCase {
 
         // Create the processing job based on type
         let job = match &request.job_type {
-            JobType::FileProcessing => ProcessingJob::new_file_processing(tenant_id, request.file_id),
+            JobType::FileProcessing => {
+                ProcessingJob::new_file_processing(tenant_id, request.file_id)
+            }
             JobType::UrlExtraction { url } => {
                 ProcessingJob::new_url_extraction(tenant_id, request.file_id, url.clone())
             }
@@ -108,7 +113,8 @@ impl QueueProcessingJobUseCase {
 
         let job_id = job.id();
 
-        // Enqueue job for processing
+        self.job_repository.save(&job).await?;
+
         self.job_queue.enqueue(job).await?;
 
         Ok(QueueJobResponse {

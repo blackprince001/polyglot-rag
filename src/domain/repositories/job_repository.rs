@@ -20,6 +20,8 @@ impl std::error::Error for JobRepositoryError {}
 
 #[async_trait]
 pub trait JobRepository: Send + Sync {
+    async fn save(&self, job: &ProcessingJob) -> Result<Uuid, JobRepositoryError>;
+
     async fn find_by_id(
         &self,
         tenant_id: Uuid,

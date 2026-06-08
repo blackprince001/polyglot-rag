@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::domain::entities::ProcessingJob;
 use crate::domain::repositories::{JobRepository, job_repository::JobRepositoryError};
-use crate::infrastructure::database::models::{JobModel, UpdateJobModel};
+use crate::infrastructure::database::models::{JobModel, NewJobModel, UpdateJobModel};
 use crate::infrastructure::database::schema::processing_jobs;
 
 pub struct PostgresJobRepository {
@@ -29,6 +29,25 @@ impl PostgresJobRepository {
 
 #[async_trait]
 impl JobRepository for PostgresJobRepository {
+    async fn save(&self, job: &ProcessingJob) -> Result<Uuid, JobRepositoryError> {
+        let mut new_job = NewJobModel::from(job.clone());
+        new_job.id = Some(job.id());
+        let mut conn = self.get_connection()?;
+
+        let inserted: JobModel = tokio::task::spawn_blocking(move || {
+            diesel::insert_into(processing_jobs::table)
+                .values(&new_job)
+                .get_result::<JobModel>(&mut conn)
+                .map_err(|e| {
+                    JobRepositoryError::DatabaseError(format!("Failed to insert job: {}", e))
+                })
+        })
+        .await
+        .map_err(|e| JobRepositoryError::DatabaseError(format!("Task join error: {}", e)))??;
+
+        Ok(inserted.id)
+    }
+
     async fn find_by_id(
         &self,
         tenant_id: Uuid,
@@ -126,7 +145,7 @@ impl JobRepository for PostgresJobRepository {
         let job_tenant = job.tenant_id();
         let mut conn = self.get_connection()?;
 
-        tokio::task::spawn_blocking(move || {
+        let affected = tokio::task::spawn_blocking(move || {
             diesel::update(
                 processing_jobs::table
                     .filter(processing_jobs::id.eq(job_id))
@@ -138,6 +157,14 @@ impl JobRepository for PostgresJobRepository {
         })
         .await
         .map_err(|e| JobRepositoryError::DatabaseError(format!("Task join error: {}", e)))??;
+
+        if affected == 0 {
+            tracing::warn!(
+                job_id = %job_id,
+                tenant_id = %job_tenant,
+                "job update affected 0 rows; job row may be missing"
+            );
+        }
 
         Ok(())
     }
