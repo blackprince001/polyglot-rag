@@ -6,6 +6,7 @@ pub enum DocumentExtractionError {
     UnsupportedFormat(String),
     CorruptedFile(String),
     ExtractionFailed(String),
+    NoTranscriptAvailable(String),
 }
 
 impl std::fmt::Display for DocumentExtractionError {
@@ -17,6 +18,9 @@ impl std::fmt::Display for DocumentExtractionError {
             DocumentExtractionError::CorruptedFile(msg) => write!(f, "Corrupted file: {}", msg),
             DocumentExtractionError::ExtractionFailed(msg) => {
                 write!(f, "Extraction failed: {}", msg)
+            }
+            DocumentExtractionError::NoTranscriptAvailable(msg) => {
+                write!(f, "No transcript available: {}", msg)
             }
         }
     }

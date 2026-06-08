@@ -1,8 +1,7 @@
+use crate::domain::entities::File;
 use async_trait::async_trait;
 use url::Url;
 use yt_transcript_rs::api::YouTubeTranscriptApi;
-use crate::domain::entities::File;
-
 
 use crate::application::ports::document_extractor::{
     DocumentExtractionError, DocumentExtractor, ExtractedDocument, ExtractionOptions,
@@ -42,24 +41,19 @@ impl YoutubeExtractor {
             ))
         })?;
 
-        // Fetch transcript
-        let languages = &["en"]; // Could be made configurable
+        let languages = &["en"];
 
         let transcript = self
             .api
             .fetch_transcript(&video_id, languages, false)
             .await
-            .map_err(|e| {
-                DocumentExtractionError::ExtractionFailed(format!(
-                    "Failed to fetch transcript: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| classify_transcript_error(&video_id, e))?;
 
         if transcript.snippets.is_empty() {
-            return Err(DocumentExtractionError::ExtractionFailed(
-                "Video has no available transcripts".to_string(),
-            ));
+            return Err(DocumentExtractionError::NoTranscriptAvailable(format!(
+                "video {} has no usable transcript captions",
+                video_id
+            )));
         }
 
         let mut timestamped_content = Vec::new();
@@ -98,7 +92,8 @@ impl YoutubeExtractor {
             metadata.set_property(
                 "timestamped_content".to_string(),
                 serde_json::Value::Array(
-                    timestamped_content.clone()
+                    timestamped_content
+                        .clone()
                         .into_iter()
                         .map(serde_json::Value::String)
                         .collect(),
@@ -149,6 +144,35 @@ impl YoutubeExtractor {
 impl Default for YoutubeExtractor {
     fn default() -> Self {
         Self::new().expect("Failed to create YouTube extractor")
+    }
+}
+
+fn classify_transcript_error<E: std::fmt::Display>(
+    video_id: &str,
+    error: E,
+) -> DocumentExtractionError {
+    let raw = error.to_string();
+    let lower = raw.to_lowercase();
+
+    let no_transcript = lower.contains("no captions")
+        || lower.contains("not parsable")
+        || lower.contains("could not retrieve a transcript")
+        || lower.contains("transcripts disabled")
+        || lower.contains("transcripts are disabled")
+        || lower.contains("subtitles are disabled")
+        || lower.contains("no transcript")
+        || lower.contains("transcript is unavailable");
+
+    if no_transcript {
+        DocumentExtractionError::NoTranscriptAvailable(format!(
+            "video {}: captions are unavailable, disabled, or not provided by the source",
+            video_id
+        ))
+    } else {
+        DocumentExtractionError::ExtractionFailed(format!(
+            "transcript fetch failed for video {}: {}",
+            video_id, raw
+        ))
     }
 }
 
@@ -205,3 +229,41 @@ impl DocumentExtractor for YoutubeExtractor {
 
 //     extractor.extract_from_url(youtube_url, &options).await
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn innertube_no_captions_is_terminal() {
+        let err = "Could not retrieve a transcript for the video 8ekndZwyOzo! \
+                   This is most likely caused by: The data required to fetch the \
+                   transcript is not parsable: No captions found in InnerTube response.";
+        let classified = classify_transcript_error("8ekndZwyOzo", err);
+        assert!(matches!(
+            classified,
+            DocumentExtractionError::NoTranscriptAvailable(_)
+        ));
+    }
+
+    #[test]
+    fn disabled_transcripts_is_terminal() {
+        let classified = classify_transcript_error("abc", "Subtitles are disabled for this video");
+        assert!(matches!(
+            classified,
+            DocumentExtractionError::NoTranscriptAvailable(_)
+        ));
+    }
+
+    #[test]
+    fn unknown_error_stays_generic_with_detail() {
+        let classified = classify_transcript_error("abc", "connection reset by peer");
+        match classified {
+            DocumentExtractionError::ExtractionFailed(msg) => {
+                assert!(msg.contains("connection reset by peer"));
+                assert!(msg.contains("abc"));
+            }
+            other => panic!("expected ExtractionFailed, got {:?}", other),
+        }
+    }
+}

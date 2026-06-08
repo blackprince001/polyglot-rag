@@ -12,7 +12,6 @@ pub struct ProcessYoutubeDirectRequest {
     pub url: String,
     pub filename: Option<String>,
     pub extract_timestamps: bool,
-    pub language_preference: Vec<String>,
     pub auto_process: bool,
 }
 
@@ -110,16 +109,6 @@ impl ProcessYoutubeDirectUseCase {
         metadata.set_property(
             "extract_timestamps".to_string(),
             serde_json::Value::Bool(request.extract_timestamps),
-        );
-        metadata.set_property(
-            "language_preference".to_string(),
-            serde_json::Value::Array(
-                request
-                    .language_preference
-                    .iter()
-                    .map(|lang| serde_json::Value::String(lang.clone()))
-                    .collect(),
-            ),
         );
 
         // For YouTube URLs, we don't store the URL as file content - the actual transcript

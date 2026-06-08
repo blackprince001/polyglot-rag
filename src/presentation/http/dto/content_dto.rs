@@ -14,7 +14,6 @@ pub struct ProcessYoutubeRequest {
     pub url: String,
     pub filename: Option<String>,
     pub extract_timestamps: Option<bool>, // Default: true
-    pub language_preference: Option<Vec<String>>, // Default: ["en"]
     pub auto_process: Option<bool>,       // Default: true
 }
 

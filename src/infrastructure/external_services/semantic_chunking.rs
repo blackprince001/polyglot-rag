@@ -210,8 +210,8 @@ mod prop_tests {
             " ",
             "\n\n\n",
             &"x".repeat(500),
-            "مرحبا بالعالم RTL mixed with LTR",   // RTL + LTR
-            "emoji 😀😀😀 and CJK 北京 mixed",       // emoji + CJK
+            "مرحبا بالعالم RTL mixed with LTR", // RTL + LTR
+            "emoji 😀😀😀 and CJK 北京 mixed",  // emoji + CJK
             "tabs\tand\nnewlines\r\nmixed   spaces",
         ];
         for text in cases {

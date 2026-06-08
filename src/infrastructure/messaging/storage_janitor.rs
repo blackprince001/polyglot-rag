@@ -62,10 +62,7 @@ impl StorageJanitor {
         loop {
             ticker.tick().await;
             let summary = self.sweep_once().await;
-            if summary.errors > 0
-                || summary.swept_dangling > 0
-                || summary.requeued_stale > 0
-            {
+            if summary.errors > 0 || summary.swept_dangling > 0 || summary.requeued_stale > 0 {
                 eprintln!(
                     "[janitor] tick summary: swept_dangling={} requeued_stale={} errors={}",
                     summary.swept_dangling, summary.requeued_stale, summary.errors
@@ -135,7 +132,10 @@ impl StorageJanitor {
         {
             Ok(rows) => rows,
             Err(e) => {
-                eprintln!("[janitor] find_stale_for_janitor (processing) failed: {}", e);
+                eprintln!(
+                    "[janitor] find_stale_for_janitor (processing) failed: {}",
+                    e
+                );
                 return 0;
             }
         };

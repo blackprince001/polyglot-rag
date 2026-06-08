@@ -149,8 +149,6 @@ impl From<crate::application::use_cases::get_file::GetFileResponse> for FileDeta
 pub struct RequestUploadUrlRequestDto {
     pub file_name: String,
     pub content_type: Option<String>,
-    /// Optional override for the presigned URL TTL. Server config default
-    /// applies when omitted.
     pub expiry_secs: Option<u64>,
 }
 
