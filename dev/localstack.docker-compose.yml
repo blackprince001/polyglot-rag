@@ -45,6 +45,10 @@ services:
       - app-network
 
   polyrag:
+    # Local thin build: run `make binary` first, then `docker compose ... up --build`.
+    # GHCR pull: set POLYRAG_IMAGE=ghcr.io/blackprince001/polyrag:<tag> and
+    #   `docker compose ... pull polyrag` (skips the local build entirely).
+    image: ${POLYRAG_IMAGE:-polyrag:local}
     build:
       context: ../
       dockerfile: dockerfile

@@ -1,4 +1,5 @@
 /target
+/artifacts
 extracted_text.json
 .env
 uploads

@@ -2,6 +2,6 @@
 .git
 .gitignore
 .dockerignore
-Dockerfile
 dev/
-targets/
+target/
+# keep ./artifacts: the thin `dockerfile` copies the prebuilt binary from it

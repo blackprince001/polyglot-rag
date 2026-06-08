@@ -1,11 +1,6 @@
-FROM rust:1.86.0 as builder
+# syntax=docker/dockerfile:1
 
-WORKDIR /usr/src/app
-COPY . .
-RUN cargo build --release
-
-FROM ubuntu:latest
-
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
   libpq5 \
   libssl3 \
@@ -13,16 +8,11 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /usr/src/app/target/release/polyrag /app/polyrag
+COPY ./artifacts/polyrag /app/polyrag
 
-# Create uploads directory
 RUN mkdir -p /app/uploads && chmod 777 /app/uploads
-
-# Run as non-root user
-RUN groupadd -r app && useradd -r -g app app
-RUN chown -R app:app /app
+RUN groupadd -r app && useradd -r -g app app && chown -R app:app /app
 USER app
 
 EXPOSE 3000
-
 CMD ["./polyrag"]
