@@ -50,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         container.file_handler,
         container.content_handler,
         container.search_handler,
+        container.search_queries_handler,
         container.job_handler,
         container.sse_handler,
         container.chunk_handler,

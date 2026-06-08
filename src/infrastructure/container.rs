@@ -32,7 +32,7 @@ use crate::{
     },
     presentation::http::handlers::{
         ChunkHandler, ContentHandler, EmbeddingHandler, FileHandler, HealthHandler, JobHandler,
-        SearchHandler, SseHandler, TenantsHandler,
+        SearchHandler, SearchQueriesHandler, SseHandler, TenantsHandler,
     },
 };
 
@@ -46,6 +46,7 @@ pub struct AppContainer {
     pub file_handler: Arc<FileHandler>,
     pub content_handler: Arc<ContentHandler>,
     pub search_handler: Arc<SearchHandler>,
+    pub search_queries_handler: Arc<SearchQueriesHandler>,
     pub job_handler: Arc<JobHandler>,
     pub sse_handler: Arc<SseHandler>,
     pub chunk_handler: Arc<ChunkHandler>,
@@ -218,6 +219,8 @@ impl AppContainer {
         ));
 
         let search_handler = Arc::new(SearchHandler::new(search_content_use_case.clone()));
+        let search_queries_handler =
+            Arc::new(SearchQueriesHandler::new(search_query_repository.clone()));
 
         let job_handler = Arc::new(JobHandler::new(
             queue_job_use_case.clone(),
@@ -273,6 +276,7 @@ impl AppContainer {
             file_handler,
             content_handler,
             search_handler,
+            search_queries_handler,
             job_handler,
             sse_handler,
             chunk_handler,

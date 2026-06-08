@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use uuid::Uuid;
 
 use crate::domain::entities::SearchQuery;
 
@@ -22,4 +23,10 @@ impl std::error::Error for SearchQueryRepositoryError {}
 #[async_trait]
 pub trait SearchQueryRepository: Send + Sync {
     async fn save(&self, query: &SearchQuery) -> Result<(), SearchQueryRepositoryError>;
+    async fn list_by_tenant(
+        &self,
+        tenant_id: Uuid,
+        skip: i64,
+        limit: i64,
+    ) -> Result<Vec<SearchQuery>, SearchQueryRepositoryError>;
 }

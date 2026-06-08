@@ -6,6 +6,7 @@ pub mod health_handler;
 pub mod job_handler;
 pub mod search_handler;
 pub mod sse_handler;
+pub mod search_queries_handler;
 pub mod tenants_handler;
 
 pub use chunk_handler::ChunkHandler;
@@ -15,5 +16,6 @@ pub use file_handler::FileHandler;
 pub use health_handler::HealthHandler;
 pub use job_handler::JobHandler;
 pub use search_handler::SearchHandler;
+pub use search_queries_handler::SearchQueriesHandler;
 pub use sse_handler::SseHandler;
 pub use tenants_handler::TenantsHandler;

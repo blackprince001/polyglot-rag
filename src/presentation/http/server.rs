@@ -12,11 +12,11 @@ use crate::presentation::http::middleware::{require_api_key, require_management_
 use crate::presentation::http::{
     handlers::{
         ChunkHandler, ContentHandler, EmbeddingHandler, FileHandler, HealthHandler, JobHandler,
-        SearchHandler, SseHandler, TenantsHandler,
+        SearchHandler, SearchQueriesHandler, SseHandler, TenantsHandler,
     },
     routes::{
         chunk_routes, content_processing_routes, embedding_routes, file_routes, health_routes,
-        job_routes, search_routes, tenant_routes,
+        job_routes, search_queries_routes, search_routes, tenant_routes,
     },
 };
 
@@ -24,6 +24,7 @@ pub struct HttpServer {
     file_handler: Arc<FileHandler>,
     content_handler: Arc<ContentHandler>,
     search_handler: Arc<SearchHandler>,
+    search_queries_handler: Arc<SearchQueriesHandler>,
     job_handler: Arc<JobHandler>,
     sse_handler: Arc<SseHandler>,
     chunk_handler: Arc<ChunkHandler>,
@@ -42,6 +43,7 @@ impl HttpServer {
         file_handler: Arc<FileHandler>,
         content_handler: Arc<ContentHandler>,
         search_handler: Arc<SearchHandler>,
+        search_queries_handler: Arc<SearchQueriesHandler>,
         job_handler: Arc<JobHandler>,
         sse_handler: Arc<SseHandler>,
         chunk_handler: Arc<ChunkHandler>,
@@ -57,6 +59,7 @@ impl HttpServer {
             file_handler,
             content_handler,
             search_handler,
+            search_queries_handler,
             job_handler,
             sse_handler,
             chunk_handler,
@@ -110,6 +113,7 @@ impl HttpServer {
             .merge(file_routes(self.file_handler.clone()))
             .merge(content_processing_routes(self.content_handler))
             .merge(search_routes(self.search_handler))
+            .merge(search_queries_routes(self.search_queries_handler))
             .merge(job_routes(self.job_handler, self.sse_handler))
             .merge(chunk_routes(self.chunk_handler.clone()))
             .merge(embedding_routes(self.embedding_handler.clone()))

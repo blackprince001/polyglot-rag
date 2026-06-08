@@ -43,3 +43,33 @@ impl From<SearchContentResponse> for SearchResponseDto {
         }
     }
 }
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SearchQueryDto {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub query_text: String,
+    pub results_count: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub user_id: Option<String>,
+    pub search_parameters: Option<serde_json::Value>,
+}
+
+impl From<crate::domain::entities::SearchQuery> for SearchQueryDto {
+    fn from(q: crate::domain::entities::SearchQuery) -> Self {
+        Self {
+            id: q.id(),
+            tenant_id: q.tenant_id(),
+            query_text: q.query_text().to_string(),
+            results_count: q.results_count(),
+            created_at: q.created_at(),
+            user_id: q.user_id().map(|s| s.to_string()),
+            search_parameters: q.search_parameters().cloned(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SearchQueryListResponseDto {
+    pub queries: Vec<SearchQueryDto>,
+}

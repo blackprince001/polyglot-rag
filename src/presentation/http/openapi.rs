@@ -35,7 +35,8 @@ use crate::presentation::http::dto::{
     HeaderPairDto, HealthResponseDto, JobResultDto, JobStatusDto, JobTypeDto, MessageResponseDto,
     PaginationDto, PaginationMetaDto, ProcessFileResponseDto, ProcessTextRequest,
     ProcessUrlRequest, ProcessUrlRequestDto, ProcessYoutubeRequest, ProcessYoutubeRequestDto,
-    QueueJobResponseDto, RequestUploadUrlRequestDto, RequestUploadUrlResponseDto, SearchRequestDto,
+    QueueJobResponseDto, RequestUploadUrlRequestDto, RequestUploadUrlResponseDto,
+    SearchQueryDto, SearchQueryListResponseDto, SearchRequestDto,
     SearchResponseDto, TenantListResponseDto, TenantResponseDto, UploadResponseDto,
     UploadWithProcessingResponse,
 };
@@ -96,6 +97,9 @@ impl Modify for ApiKeySecurity {
             ApiResponse<QueueJobResponseDto>,
             ApiResponse<CancelJobResponseDto>,
             ApiResponse<SearchResponseDto>,
+            ApiResponse<SearchQueryListResponseDto>,
+            SearchQueryDto,
+            SearchQueryListResponseDto,
             ApiResponse<DocumentChunkDto>,
             ApiResponse<DocumentWithChunksDto>,
             ApiResponse<SimilaritySearchResponse>,
@@ -184,6 +188,7 @@ impl Modify for ApiKeySecurity {
         get_active_jobs,
         cancel_job,
         search_content,
+        list_search_queries,
         get_chunk,
         get_chunks_by_file,
         get_chunk_count_by_file,
@@ -654,6 +659,23 @@ async fn cancel_job() {}
     )
 )]
 async fn search_content() {}
+
+#[utoipa::path(
+    get,
+    path = "/search-queries",
+    tag = "Search",
+    summary = "List search queries for the current tenant",
+    description = "Returns paginated search queries recorded for this tenant, most recent first.",
+    params(
+        ("skip" = Option<i64>, Query, description = "Number of records to skip (default 0)"),
+        ("limit" = Option<i64>, Query, description = "Max records to return (default 20, max 100)"),
+    ),
+    security(("ApiKey" = []), ("ApiKeyBearer" = [])),
+    responses(
+        (status = 200, description = "Paginated search query list", body = ApiResponse<SearchQueryListResponseDto>),
+    )
+)]
+async fn list_search_queries() {}
 
 #[utoipa::path(
     get,
