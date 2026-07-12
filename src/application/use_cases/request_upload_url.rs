@@ -10,6 +10,7 @@ use crate::domain::repositories::{FileRepository, file_repository::FileRepositor
 use crate::domain::value_objects::FileMetadata;
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum RequestUploadUrlError {
     ValidationError(String),
     StorageError(String),
@@ -109,7 +110,8 @@ impl RequestUploadUrlUseCase {
             .await
             .map_err(|e| RequestUploadUrlError::StorageError(e.to_string()))?;
 
-        let file = File::new(
+        let file = File::new_with_id(
+            file_id,
             storage_key(tenant_id, file_id),
             file_name.clone(),
             None,

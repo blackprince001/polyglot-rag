@@ -114,7 +114,8 @@ impl UploadFileUseCase {
             .map_err(|e| UploadFileError::StorageError(e.to_string()))?;
 
         // Create domain entity
-        let file = File::new(
+        let file = File::new_with_id(
+            file_id,
             stored_file.key,
             request.file_name.clone(),
             Some(request.file_data.len() as i64),

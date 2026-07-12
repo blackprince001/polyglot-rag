@@ -45,7 +45,11 @@ pub struct NewFileModel {
 impl NewFileModel {
     pub fn for_tenant(tenant_id: Uuid, domain_file: &DomainFile) -> Self {
         Self {
-            id: None, // Let database generate the ID
+            id: if domain_file.id().is_nil() {
+                None // Let database generate the ID
+            } else {
+                Some(domain_file.id())
+            },
             tenant_id,
             file_path: domain_file.file_path().to_string(),
             file_name: domain_file.file_name().to_string(),

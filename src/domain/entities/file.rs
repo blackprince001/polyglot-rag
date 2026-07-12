@@ -42,6 +42,25 @@ impl File {
         }
     }
 
+    /// Like `new`, but carries a caller-generated id so the database row matches
+    /// an id that was already used for blob storage.
+    pub fn new_with_id(
+        id: Uuid,
+        file_path: String,
+        file_name: String,
+        file_size: Option<i64>,
+        file_type: Option<String>,
+        file_hash: Option<FileHash>,
+        metadata: Option<FileMetadata>,
+    ) -> Self {
+        let mut file = Self::new(
+            file_path, file_name, file_size, file_type, file_hash, metadata,
+        );
+        file.id = id;
+        file
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn with_id(
         id: Uuid,
         file_path: String,
