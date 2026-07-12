@@ -27,7 +27,7 @@ services:
               count: 1
     ports:
       - "8080:80"
-    command: --model-id Qwen/Qwen3-Embedding-0.6B
+    command: --model-id Qwen/Qwen3-Embedding-0.6B --auto-truncate --max-batch-tokens 2048
     networks:
       - app-network
 
@@ -52,7 +52,7 @@ services:
       - HOST=0.0.0.0
       - WORKER_COUNT=3
       - CORS_ALLOWED_ORIGINS=
-      - TENANT_MANAGEMENT_KEY=
+      - TENANT_MANAGEMENT_KEY=${TENANT_MANAGEMENT_KEY:-}
       - PRESIGNED_UPLOAD_TTL_SECS=900
       - PRESIGNED_DOWNLOAD_TTL_SECS=300
       - JANITOR_INTERVAL_SECS=300
