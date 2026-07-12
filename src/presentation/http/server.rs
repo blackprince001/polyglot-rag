@@ -219,7 +219,7 @@ fn redact_db_url(url: &str) -> Option<String> {
         .or_else(|| trimmed.strip_prefix("postgresql://"))
         .unwrap_or(trimmed);
 
-    let (authority, path) = match after_scheme.find(|c: char| c == '/' || c == '?') {
+    let (authority, path) = match after_scheme.find(['/', '?']) {
         Some(idx) => (&after_scheme[..idx], &after_scheme[idx..]),
         None => (after_scheme, ""),
     };

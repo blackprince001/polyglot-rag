@@ -9,6 +9,7 @@ use crate::domain::entities::processing_job::JobType;
 use crate::domain::repositories::FileRepository;
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum UploadWithProcessingError {
     UploadError(String),
     QueueError(String),

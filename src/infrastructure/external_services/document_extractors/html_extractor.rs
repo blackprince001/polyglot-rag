@@ -83,12 +83,12 @@ impl DocumentExtractor for HtmlExtractor {
         let content_path = file.file_path();
         let padding = 80; // Default padding for text width
         let text = self
-            .extract_from_html_content(&content_path, padding)
+            .extract_from_html_content(content_path, padding)
             .await?;
 
         let _metadata = FileMetadata::new();
         if options.extract_metadata {
-            let _ = extract_title_from_html(&content_path);
+            let _ = extract_title_from_html(content_path);
         }
 
         Ok(ExtractedDocument::text_only(text))

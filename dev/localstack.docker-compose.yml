@@ -15,16 +15,13 @@ services:
       - app-network
 
   text-embeddings-inference:
-    image: ghcr.io/huggingface/text-embeddings-inference:1.8
+    # CPU image pinned to linux/amd64: TEI publishes no arm64 images, so Apple
+    # Silicon runs this under Rosetta (slow but fine for dev). NVIDIA GPU:
+    #   docker compose -f dev/localstack.docker-compose.yml -f dev/tei-gpu.override.yml up
+    image: ${TEI_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.8}
+    platform: linux/amd64
     volumes:
       - ./data:/data
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [gpu]
-              count: 1
     ports:
       - "8080:80"
     command: --model-id Qwen/Qwen3-Embedding-0.6B
@@ -45,17 +42,20 @@ services:
       - app-network
 
   polyrag:
-    # Local thin build: run `make binary` first, then `docker compose ... up --build`.
-    # GHCR pull: set POLYRAG_IMAGE=ghcr.io/blackprince001/polyrag:<tag> and
-    #   `docker compose ... pull polyrag` (skips the local build entirely).
-    image: ${POLYRAG_IMAGE:-polyrag:local}
+    # Default: pulls the public image — no login, no local build needed.
+    # Refresh to newest: `docker compose ... pull polyrag`.
+    # Local dev build (self-contained): `docker compose ... up --build`.
+    # Pin or use a locally built image: POLYRAG_IMAGE=polyrag:local (from `make image`).
+    image: ${POLYRAG_IMAGE:-ghcr.io/blackprince001/polyglot-rag:latest}
+    pull_policy: always
     build:
       context: ../
-      dockerfile: dockerfile
+      dockerfile: dockerfile.build
+      target: runtime
     container_name: polyrag
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres/postgres
-      - EMBEDDINGS_SERVICE_URL=http://text-embeddings-inference:8080
+      - EMBEDDINGS_SERVICE_URL=http://text-embeddings-inference:80
       - PORT=9000
       - RUST_BACKTRACE=1
       - STORAGE_BACKEND=s3

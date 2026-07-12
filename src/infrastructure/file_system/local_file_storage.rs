@@ -97,9 +97,7 @@ impl FileStorage for LocalFileStorage {
         let path = self.path_for(&key);
         match fs::File::open(&path).await {
             Ok(file) => Ok(Box::new(file)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(FileStorageError::IoError(
-                format!("object not found at key '{}'", key),
-            )),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(FileStorageError::NotFound),
             Err(e) => Err(FileStorageError::IoError(e.to_string())),
         }
     }

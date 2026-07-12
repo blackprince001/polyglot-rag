@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum ProcessingStatus {
+    #[default]
     Pending,
     Processing,
     Completed,
@@ -49,15 +50,6 @@ impl ProcessingStatus {
         }
     }
 
-    pub fn to_string(&self) -> String {
-        match self {
-            ProcessingStatus::Pending => "pending".to_string(),
-            ProcessingStatus::Processing => "processing".to_string(),
-            ProcessingStatus::Completed => "completed".to_string(),
-            ProcessingStatus::Failed(_) => "failed".to_string(), // Keep status short, store error in error_message field
-        }
-    }
-
     pub fn from_string(s: &str) -> Result<Self, String> {
         match s.to_lowercase().as_str() {
             "pending" => Ok(ProcessingStatus::Pending),
@@ -83,15 +75,16 @@ impl ProcessingStatus {
     }
 }
 
-impl Default for ProcessingStatus {
-    fn default() -> Self {
-        ProcessingStatus::Pending
-    }
-}
-
 impl std::fmt::Display for ProcessingStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        let status = match self {
+            ProcessingStatus::Pending => "pending",
+            ProcessingStatus::Processing => "processing",
+            ProcessingStatus::Completed => "completed",
+            // Keep status short; the error lives in the error_message field.
+            ProcessingStatus::Failed(_) => "failed",
+        };
+        write!(f, "{}", status)
     }
 }
 

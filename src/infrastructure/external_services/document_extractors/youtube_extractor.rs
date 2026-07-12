@@ -129,7 +129,7 @@ impl YoutubeExtractor {
         match url.host_str() {
             Some("www.youtube.com") | Some("youtube.com") => {
                 // Standard format: https://www.youtube.com/watch?v=VIDEO_ID
-                if let Some(_) = url.query() {
+                if url.query().is_some() {
                     for (key, value) in url.query_pairs() {
                         if key == "v" {
                             return Ok(value.to_string());
@@ -142,10 +142,10 @@ impl YoutubeExtractor {
             }
             Some("youtu.be") => {
                 // Short format: https://youtu.be/VIDEO_ID
-                if let Some(path) = url.path_segments() {
-                    if let Some(video_id) = path.last() {
-                        return Ok(video_id.to_string());
-                    }
+                if let Some(mut path) = url.path_segments()
+                    && let Some(video_id) = path.next_back()
+                {
+                    return Ok(video_id.to_string());
                 }
                 Err(DocumentExtractionError::ExtractionFailed(
                     "Could not extract video ID from short YouTube URL".to_string(),
@@ -171,21 +171,15 @@ fn map_transcript_api_error(
     use yt_transcript_rs::errors::CouldNotRetrieveTranscriptReason;
 
     match &err.reason {
-        Some(reason) => match reason {
+        Some(
             CouldNotRetrieveTranscriptReason::TranscriptsDisabled
             | CouldNotRetrieveTranscriptReason::NoTranscriptFound { .. }
-            | CouldNotRetrieveTranscriptReason::YouTubeDataUnparsable(_) => {
-                DocumentExtractionError::NoTranscriptAvailable(format!(
-                    "video {}: captions are unavailable, disabled, or not provided by the source",
-                    video_id
-                ))
-            }
-            _ => DocumentExtractionError::ExtractionFailed(format!(
-                "transcript fetch failed for video {}: {}",
-                video_id, err
-            )),
-        },
-        None => DocumentExtractionError::ExtractionFailed(format!(
+            | CouldNotRetrieveTranscriptReason::YouTubeDataUnparsable(_),
+        ) => DocumentExtractionError::NoTranscriptAvailable(format!(
+            "video {}: captions are unavailable, disabled, or not provided by the source",
+            video_id
+        )),
+        _ => DocumentExtractionError::ExtractionFailed(format!(
             "transcript fetch failed for video {}: {}",
             video_id, err
         )),
@@ -251,7 +245,10 @@ mod tests {
     use super::*;
     use yt_transcript_rs::errors::{CouldNotRetrieveTranscript, CouldNotRetrieveTranscriptReason};
 
-    fn make_err(video_id: &str, reason: Option<CouldNotRetrieveTranscriptReason>) -> CouldNotRetrieveTranscript {
+    fn make_err(
+        video_id: &str,
+        reason: Option<CouldNotRetrieveTranscriptReason>,
+    ) -> CouldNotRetrieveTranscript {
         CouldNotRetrieveTranscript {
             video_id: video_id.to_string(),
             reason,
@@ -260,9 +257,15 @@ mod tests {
 
     #[test]
     fn transcripts_disabled_is_no_transcript() {
-        let err = make_err("abc", Some(CouldNotRetrieveTranscriptReason::TranscriptsDisabled));
+        let err = make_err(
+            "abc",
+            Some(CouldNotRetrieveTranscriptReason::TranscriptsDisabled),
+        );
         let mapped = map_transcript_api_error("abc", err);
-        assert!(matches!(mapped, DocumentExtractionError::NoTranscriptAvailable(_)));
+        assert!(matches!(
+            mapped,
+            DocumentExtractionError::NoTranscriptAvailable(_)
+        ));
     }
 
     #[test]
@@ -274,7 +277,10 @@ mod tests {
             )),
         );
         let mapped = map_transcript_api_error("abc", err);
-        assert!(matches!(mapped, DocumentExtractionError::NoTranscriptAvailable(_)));
+        assert!(matches!(
+            mapped,
+            DocumentExtractionError::NoTranscriptAvailable(_)
+        ));
     }
 
     #[test]
@@ -294,21 +300,36 @@ mod tests {
             }),
         );
         let mapped = map_transcript_api_error("abc", err);
-        assert!(matches!(mapped, DocumentExtractionError::NoTranscriptAvailable(_)));
+        assert!(matches!(
+            mapped,
+            DocumentExtractionError::NoTranscriptAvailable(_)
+        ));
     }
 
     #[test]
     fn ip_blocked_is_generic() {
-        let err = make_err("abc", Some(CouldNotRetrieveTranscriptReason::IpBlocked(None)));
+        let err = make_err(
+            "abc",
+            Some(CouldNotRetrieveTranscriptReason::IpBlocked(None)),
+        );
         let mapped = map_transcript_api_error("abc", err);
-        assert!(matches!(mapped, DocumentExtractionError::ExtractionFailed(_)));
+        assert!(matches!(
+            mapped,
+            DocumentExtractionError::ExtractionFailed(_)
+        ));
     }
 
     #[test]
     fn video_unavailable_is_generic() {
-        let err = make_err("abc", Some(CouldNotRetrieveTranscriptReason::VideoUnavailable));
+        let err = make_err(
+            "abc",
+            Some(CouldNotRetrieveTranscriptReason::VideoUnavailable),
+        );
         let mapped = map_transcript_api_error("abc", err);
-        assert!(matches!(mapped, DocumentExtractionError::ExtractionFailed(_)));
+        assert!(matches!(
+            mapped,
+            DocumentExtractionError::ExtractionFailed(_)
+        ));
     }
 
     #[test]

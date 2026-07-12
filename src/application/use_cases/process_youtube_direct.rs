@@ -165,7 +165,7 @@ impl ProcessYoutubeDirectUseCase {
         match url.host_str() {
             Some("www.youtube.com") | Some("youtube.com") => {
                 // Standard format: https://www.youtube.com/watch?v=VIDEO_ID
-                if let Some(_) = url.query() {
+                if url.query().is_some() {
                     for (key, value) in url.query_pairs() {
                         if key == "v" {
                             return Ok(value.to_string());
@@ -178,10 +178,10 @@ impl ProcessYoutubeDirectUseCase {
             }
             Some("youtu.be") => {
                 // Short format: https://youtu.be/VIDEO_ID
-                if let Some(path) = url.path_segments() {
-                    if let Some(video_id) = path.last() {
-                        return Ok(video_id.to_string());
-                    }
+                if let Some(mut path) = url.path_segments()
+                    && let Some(video_id) = path.next_back()
+                {
+                    return Ok(video_id.to_string());
                 }
                 Err(ProcessYoutubeDirectError::InvalidUrl(
                     "Could not extract video ID from short YouTube URL".to_string(),

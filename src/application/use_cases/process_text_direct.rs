@@ -10,7 +10,7 @@ use crate::domain::value_objects::{FileHash, FileMetadata};
 /// Max bytes accepted in a single text-blob request. Larger payloads should
 /// use `POST /upload` (multipart) so the body goes through the global
 /// 250 MB limit. 1 MiB covers notes, articles, transcripts comfortably.
-const MAX_TEXT_BLOB_BYTES: usize = 1 * 1024 * 1024;
+const MAX_TEXT_BLOB_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub struct ProcessTextDirectRequest {
@@ -29,6 +29,7 @@ pub struct ProcessTextDirectResponse {
 }
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum ProcessTextDirectError {
     RepositoryError(String),
     StorageError(String),
@@ -134,7 +135,8 @@ impl ProcessTextDirectUseCase {
         );
 
         let file_hash = FileHash::from_bytes(&bytes);
-        let file = File::new(
+        let file = File::new_with_id(
+            file_id,
             stored.key,
             filename.clone(),
             Some(file_size),

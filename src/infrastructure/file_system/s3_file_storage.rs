@@ -135,12 +135,36 @@ impl FileStorage for S3FileStorage {
 
     async fn open_read(
         &self,
-        _tenant_id: Uuid,
-        _file_id: Uuid,
+        tenant_id: Uuid,
+        file_id: Uuid,
     ) -> Result<Box<dyn AsyncRead + Send + Unpin>, FileStorageError> {
-        // S3 never proxies bytes through the server — callers use the
-        // presigned GET URL.
-        Err(FileStorageError::Unsupported)
+        // Server-side read for the extraction pipeline. Client downloads
+        // still redirect to a presigned GET (`supports_server_stream` is
+        // false), so the sole consumer reads whole documents — buffering
+        // beats holding an S3 connection open across slow extraction.
+        let key = Self::key(tenant_id, file_id);
+        let resp = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(&key)
+            .send()
+            .await
+            .map_err(|e| {
+                let service_err = e.into_service_error();
+                if service_err.is_no_such_key() {
+                    FileStorageError::NotFound
+                } else {
+                    FileStorageError::Backend(format!("S3 get_object: {}", service_err))
+                }
+            })?;
+        let bytes = resp
+            .body
+            .collect()
+            .await
+            .map_err(|e| FileStorageError::Backend(format!("S3 read body: {}", e)))?
+            .into_bytes();
+        Ok(Box::new(std::io::Cursor::new(bytes)))
     }
 
     async fn delete(&self, tenant_id: Uuid, file_id: Uuid) -> Result<(), FileStorageError> {

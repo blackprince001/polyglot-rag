@@ -21,7 +21,7 @@ impl TextExtractor {
     fn can_extract_str(file_type: &str) -> bool {
         matches!(
             file_type.to_lowercase().as_str(),
-            "text/plain" | "text/txt" | "txt" | "plain"
+            "text/plain" | "text/txt" | "txt" | "plain" | "text/markdown" | "markdown" | "md"
         )
     }
 }

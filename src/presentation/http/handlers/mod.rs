@@ -5,8 +5,8 @@ pub mod file_handler;
 pub mod health_handler;
 pub mod job_handler;
 pub mod search_handler;
-pub mod sse_handler;
 pub mod search_queries_handler;
+pub mod sse_handler;
 pub mod tenants_handler;
 
 pub use chunk_handler::ChunkHandler;

@@ -58,17 +58,16 @@ fn unauthorized(message: &str) -> Response {
 }
 
 fn extract_token(parts: &Parts) -> Option<String> {
-    if let Some(value) = parts.headers.get(header::AUTHORIZATION) {
-        if let Ok(s) = value.to_str() {
-            if let Some(token) = s.strip_prefix("Bearer ") {
-                return Some(token.trim().to_string());
-            }
-        }
+    if let Some(value) = parts.headers.get(header::AUTHORIZATION)
+        && let Ok(s) = value.to_str()
+        && let Some(token) = s.strip_prefix("Bearer ")
+    {
+        return Some(token.trim().to_string());
     }
-    if let Some(value) = parts.headers.get("x-management-key") {
-        if let Ok(s) = value.to_str() {
-            return Some(s.trim().to_string());
-        }
+    if let Some(value) = parts.headers.get("x-management-key")
+        && let Ok(s) = value.to_str()
+    {
+        return Some(s.trim().to_string());
     }
     None
 }

@@ -7,7 +7,7 @@ use uuid::Uuid;
 pub enum FileStorageError {
     IoError(String),
     Backend(String),
-    Unsupported,
+    NotFound,
     PresignFailed(String),
 }
 
@@ -16,9 +16,7 @@ impl std::fmt::Display for FileStorageError {
         match self {
             FileStorageError::IoError(msg) => write!(f, "IO error: {}", msg),
             FileStorageError::Backend(msg) => write!(f, "Storage backend error: {}", msg),
-            FileStorageError::Unsupported => {
-                write!(f, "Operation not supported by this storage backend")
-            }
+            FileStorageError::NotFound => write!(f, "File not found in storage"),
             FileStorageError::PresignFailed(msg) => write!(f, "Presign failed: {}", msg),
         }
     }

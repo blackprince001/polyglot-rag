@@ -117,13 +117,7 @@ impl From<FileMetadata> for HashMap<String, serde_json::Value> {
 
 impl From<FileMetadata> for serde_json::Value {
     fn from(metadata: FileMetadata) -> Self {
-        serde_json::Value::Object(
-            metadata
-                .properties
-                .into_iter()
-                .map(|(k, v)| (k, v))
-                .collect(),
-        )
+        serde_json::Value::Object(metadata.properties.into_iter().collect())
     }
 }
 

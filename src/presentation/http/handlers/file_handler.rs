@@ -81,17 +81,16 @@ impl FileHandler {
         tenant: TenantContext,
         mut multipart: Multipart,
     ) -> Result<impl IntoResponse, StatusCode> {
+        // Take the first field that carries a filename so extra form parts
+        // (metadata, flags) ahead of the file don't break the upload.
         while let Some(field) = multipart.next_field().await.map_err(|e| {
             eprintln!("Error reading multipart field: {:?}", e);
             StatusCode::BAD_REQUEST
         })? {
-            let file_name = field
-                .file_name()
-                .ok_or_else(|| {
-                    eprintln!("No file name provided in field: {:?}", field.name());
-                    StatusCode::BAD_REQUEST
-                })?
-                .to_string();
+            let Some(file_name) = field.file_name().map(|name| name.to_string()) else {
+                eprintln!("Skipping non-file field: {:?}", field.name());
+                continue;
+            };
 
             let content_type = field.content_type().map(|ct| ct.to_string());
 
@@ -411,10 +410,10 @@ impl FileHandler {
             };
             let body = Body::from_stream(tokio_util::io::ReaderStream::new(stream));
             let mut headers = HeaderMap::new();
-            if let Some(ct) = file.file_type() {
-                if let Ok(v) = HeaderValue::from_str(ct) {
-                    headers.insert(header::CONTENT_TYPE, v);
-                }
+            if let Some(ct) = file.file_type()
+                && let Ok(v) = HeaderValue::from_str(ct)
+            {
+                headers.insert(header::CONTENT_TYPE, v);
             }
             Ok((StatusCode::OK, headers, body).into_response())
         } else {
@@ -700,10 +699,10 @@ impl FileHandler {
                     );
                 }
                 Some("auto_process") => {
-                    if let Ok(data) = field.bytes().await {
-                        if let Ok(value) = String::from_utf8(data.to_vec()) {
-                            auto_process = value.parse().unwrap_or(true);
-                        }
+                    if let Ok(data) = field.bytes().await
+                        && let Ok(value) = String::from_utf8(data.to_vec())
+                    {
+                        auto_process = value.parse().unwrap_or(true);
                     }
                 }
                 _ => {

@@ -9,6 +9,7 @@ pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum DatabaseError {
     ConnectionError(String),
     PoolError(String),

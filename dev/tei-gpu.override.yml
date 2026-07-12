@@ -1,0 +1,12 @@
+# NVIDIA GPU variant of the embeddings service. Layer on top of either stack:
+#   docker compose -f dev/local.docker-compose.yml -f dev/tei-gpu.override.yml up
+services:
+  text-embeddings-inference:
+    image: ghcr.io/huggingface/text-embeddings-inference:1.8
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: 1
