@@ -34,9 +34,7 @@ impl SseHandler {
         let stream = stream::unfold(Some(()), move |state| {
             let use_case = use_case.clone();
             async move {
-                if state.is_none() {
-                    return None; // Stream ended
-                }
+                state?;
 
                 // Get current job status
                 let request = GetJobStatusRequest { job_id };
@@ -85,9 +83,7 @@ impl SseHandler {
         let stream = stream::unfold(Some(()), move |state| {
             let use_case = use_case.clone();
             async move {
-                if state.is_none() {
-                    return None; // Stream ended
-                }
+                state?;
 
                 // Get all active jobs (scoped to this tenant)
                 match use_case.get_active_jobs().await {
@@ -95,7 +91,7 @@ impl SseHandler {
                         let jobs_data: Vec<JobStatusDto> = jobs
                             .into_iter()
                             .filter(|job| job.tenant_id() == tenant_id)
-                            .map(|job| JobStatusDto::from_job(job))
+                            .map(JobStatusDto::from_job)
                             .collect();
 
                         let event_data = serde_json::to_string(&jobs_data).unwrap_or_default();

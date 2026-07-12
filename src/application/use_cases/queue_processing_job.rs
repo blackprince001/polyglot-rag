@@ -85,7 +85,7 @@ impl QueueProcessingJobUseCase {
             .find_by_id(tenant_id, request.file_id)
             .await
             .map_err(|e| QueueJobError::RepositoryError(e.to_string()))?
-            .ok_or_else(|| QueueJobError::FileNotFound(request.file_id))?;
+            .ok_or(QueueJobError::FileNotFound(request.file_id))?;
 
         // Check if there's already an active job for this file
         let existing_jobs = self
@@ -181,10 +181,10 @@ impl QueueProcessingJobUseCase {
             .map_err(|_| QueueJobError::ValidationError("Invalid URL format".to_string()))?;
 
         // Check if it's a valid YouTube URL
-        let is_youtube = match parsed_url.host_str() {
-            Some("www.youtube.com") | Some("youtube.com") | Some("youtu.be") => true,
-            _ => false,
-        };
+        let is_youtube = matches!(
+            parsed_url.host_str(),
+            Some("www.youtube.com") | Some("youtube.com") | Some("youtu.be")
+        );
 
         if !is_youtube {
             return Err(QueueJobError::ValidationError(

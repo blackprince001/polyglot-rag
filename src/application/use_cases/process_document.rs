@@ -88,7 +88,7 @@ impl ProcessDocumentUseCase {
 
         // Start processing
         file.start_processing()
-            .map_err(|e| ProcessDocumentError::ProcessingError(e))?;
+            .map_err(ProcessDocumentError::ProcessingError)?;
 
         self.file_repository.update(tenant_id, &file).await?;
 
@@ -106,7 +106,7 @@ impl ProcessDocumentUseCase {
             Ok(outcome) => {
                 // Mark as completed
                 file.complete_processing()
-                    .map_err(|e| ProcessDocumentError::ProcessingError(e))?;
+                    .map_err(ProcessDocumentError::ProcessingError)?;
 
                 self.file_repository.update(tenant_id, &file).await?;
 
@@ -122,7 +122,7 @@ impl ProcessDocumentUseCase {
             Err(e) => {
                 // Mark as failed
                 file.fail_processing(e.to_string())
-                    .map_err(|e| ProcessDocumentError::ProcessingError(e))?;
+                    .map_err(ProcessDocumentError::ProcessingError)?;
 
                 self.file_repository.update(tenant_id, &file).await?;
 

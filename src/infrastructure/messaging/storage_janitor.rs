@@ -74,10 +74,11 @@ impl StorageJanitor {
     /// One pass: dangling intent + stale processing. Exposed for tests and
     /// for ad-hoc `/admin/janitor` triggers if we ever add one.
     pub async fn sweep_once(&self) -> JanitorSummary {
-        let mut summary = JanitorSummary::default();
-        summary.swept_dangling = self.sweep_dangling_intent().await;
-        summary.requeued_stale = self.sweep_stale_processing().await;
-        summary
+        JanitorSummary {
+            swept_dangling: self.sweep_dangling_intent().await,
+            requeued_stale: self.sweep_stale_processing().await,
+            ..Default::default()
+        }
     }
 
     async fn sweep_dangling_intent(&self) -> usize {

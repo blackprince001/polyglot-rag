@@ -88,8 +88,7 @@ impl CancelJobUseCase {
         }
 
         // Cancel the job
-        job.cancel()
-            .map_err(|e| CancelJobError::JobNotCancellable(e))?;
+        job.cancel().map_err(CancelJobError::JobNotCancellable)?;
 
         // Update in repository
         self.job_repository.update(&job).await?;

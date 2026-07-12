@@ -10,7 +10,6 @@ pub struct CreateTenantRequest {
     pub name: String,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiKeyScope {

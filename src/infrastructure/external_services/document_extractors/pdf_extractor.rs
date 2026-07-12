@@ -56,24 +56,21 @@ impl PdfExtractor {
             b"MediaBox",
         ];
 
-        match object {
-            Object::Dictionary(dict) => {
-                let keys_to_remove: Vec<_> = dict
-                    .iter()
-                    .filter_map(|(key, _)| {
-                        if IGNORE.contains(&key.as_slice()) {
-                            Some(key.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                for key in keys_to_remove {
-                    dict.remove(&key);
-                }
-                // Don't filter out empty dictionaries - they might contain important structure
+        if let Object::Dictionary(dict) = object {
+            let keys_to_remove: Vec<_> = dict
+                .iter()
+                .filter_map(|(key, _)| {
+                    if IGNORE.contains(&key.as_slice()) {
+                        Some(key.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for key in keys_to_remove {
+                dict.remove(&key);
             }
-            _ => {}
+            // Don't filter out empty dictionaries - they might contain important structure
         }
 
         Some((object_id, object.to_owned()))

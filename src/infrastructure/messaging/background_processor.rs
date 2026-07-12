@@ -32,6 +32,7 @@ pub struct BackgroundProcessor {
 }
 
 impl BackgroundProcessor {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         job_receiver: Arc<MpscJobQueueReceiver>,
         job_repository: Arc<dyn JobRepository>,

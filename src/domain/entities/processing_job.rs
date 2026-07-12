@@ -86,6 +86,7 @@ impl ProcessingJob {
     }
 
     /// Create a ProcessingJob from database values (for repository reconstruction)
+    #[allow(clippy::too_many_arguments)]
     pub fn from_database(
         id: Uuid,
         tenant_id: Uuid,
@@ -179,7 +180,7 @@ impl ProcessingJob {
             return Err("Job is not in processing state".to_string());
         }
 
-        if progress < 0.0 || progress > 1.0 {
+        if !(0.0..=1.0).contains(&progress) {
             return Err("Progress must be between 0.0 and 1.0".to_string());
         }
 
@@ -241,13 +242,14 @@ impl ProcessingJob {
     }
 
     pub fn estimated_completion(&self) -> Option<DateTime<Utc>> {
-        if let Some(start) = self.started_at {
-            if self.progress > 0.1 && self.status.is_processing() {
-                let elapsed = Utc::now() - start;
-                let estimated_total = elapsed.num_milliseconds() as f64 / self.progress as f64;
-                let remaining = estimated_total - elapsed.num_milliseconds() as f64;
-                return Some(Utc::now() + chrono::Duration::milliseconds(remaining as i64));
-            }
+        if let Some(start) = self.started_at
+            && self.progress > 0.1
+            && self.status.is_processing()
+        {
+            let elapsed = Utc::now() - start;
+            let estimated_total = elapsed.num_milliseconds() as f64 / self.progress as f64;
+            let remaining = estimated_total - elapsed.num_milliseconds() as f64;
+            return Some(Utc::now() + chrono::Duration::milliseconds(remaining as i64));
         }
         None
     }

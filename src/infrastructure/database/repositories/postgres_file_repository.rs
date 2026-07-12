@@ -53,7 +53,7 @@ impl FileRepository for PostgresFileRepository {
         match result {
             Some(model) => {
                 let domain_file =
-                    File::try_from(model).map_err(|e| FileRepositoryError::ValidationError(e))?;
+                    File::try_from(model).map_err(FileRepositoryError::ValidationError)?;
                 Ok(Some(domain_file))
             }
             None => Ok(None),
@@ -81,7 +81,7 @@ impl FileRepository for PostgresFileRepository {
         let mut domain_files = Vec::new();
         for model in models {
             let domain_file =
-                File::try_from(model).map_err(|e| FileRepositoryError::ValidationError(e))?;
+                File::try_from(model).map_err(FileRepositoryError::ValidationError)?;
             domain_files.push(domain_file);
         }
 
@@ -106,7 +106,7 @@ impl FileRepository for PostgresFileRepository {
         match result {
             Some(model) => {
                 let domain_file =
-                    File::try_from(model).map_err(|e| FileRepositoryError::ValidationError(e))?;
+                    File::try_from(model).map_err(FileRepositoryError::ValidationError)?;
                 Ok(Some(domain_file))
             }
             None => Ok(None),
@@ -133,7 +133,7 @@ impl FileRepository for PostgresFileRepository {
         let mut domain_files = Vec::new();
         for model in models {
             let domain_file =
-                File::try_from(model).map_err(|e| FileRepositoryError::ValidationError(e))?;
+                File::try_from(model).map_err(FileRepositoryError::ValidationError)?;
             domain_files.push(domain_file);
         }
 

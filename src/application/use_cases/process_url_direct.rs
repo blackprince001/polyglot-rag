@@ -85,7 +85,7 @@ impl ProcessUrlDirectUseCase {
             // Try to extract from URL
             parsed_url
                 .path_segments()
-                .and_then(|segments| segments.last())
+                .and_then(|mut segments| segments.next_back())
                 .filter(|name| !name.is_empty())
                 .map(|name| name.to_string())
                 .unwrap_or_else(|| {

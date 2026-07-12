@@ -75,7 +75,8 @@ impl AppContainer {
             Arc::new(PostgresAuthRepository::new(db_pool.clone()));
         let asset_repository: Arc<dyn AssetRepository> =
             Arc::new(PostgresAssetRepository::new(db_pool.clone()));
-        let job_repository: Arc<dyn JobRepository> = Arc::new(PostgresJobRepository::new(db_pool.clone()));
+        let job_repository: Arc<dyn JobRepository> =
+            Arc::new(PostgresJobRepository::new(db_pool.clone()));
         let search_query_repository: Arc<dyn SearchQueryRepository> =
             Arc::new(PostgresSearchQueryRepository::new(db_pool));
 

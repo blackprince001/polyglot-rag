@@ -5,11 +5,6 @@
 //! extracts the `#[utoipa::path(...)]` metadata from each function and
 //! registers it in the spec, then discards the body. The dummy bodies
 //! (`{}`) and the `async fn` declarations are required by the macro; the
-//! `#[allow(dead_code)]` silences the linter, which would otherwise flag
-//! them as unused even though the macro consumes them at build time.
-
-#![allow(dead_code)]
-
 //! OpenAPI 3.1 spec for Scalar.
 //!
 //! All handlers in this module are placeholder signatures consumed by
@@ -35,10 +30,9 @@ use crate::presentation::http::dto::{
     HeaderPairDto, HealthResponseDto, JobResultDto, JobStatusDto, JobTypeDto, MessageResponseDto,
     PaginationDto, PaginationMetaDto, ProcessFileResponseDto, ProcessTextRequest,
     ProcessUrlRequest, ProcessUrlRequestDto, ProcessYoutubeRequest, ProcessYoutubeRequestDto,
-    QueueJobResponseDto, RequestUploadUrlRequestDto, RequestUploadUrlResponseDto,
-    SearchQueryDto, SearchQueryListResponseDto, SearchRequestDto,
-    SearchResponseDto, TenantListResponseDto, TenantResponseDto, UploadResponseDto,
-    UploadWithProcessingResponse,
+    QueueJobResponseDto, RequestUploadUrlRequestDto, RequestUploadUrlResponseDto, SearchQueryDto,
+    SearchQueryListResponseDto, SearchRequestDto, SearchResponseDto, TenantListResponseDto,
+    TenantResponseDto, UploadResponseDto, UploadWithProcessingResponse,
 };
 use crate::presentation::http::handlers::embedding_handler::{
     SimilaritySearchRequest, SimilaritySearchResponse,

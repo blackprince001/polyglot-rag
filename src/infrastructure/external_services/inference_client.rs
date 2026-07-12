@@ -65,6 +65,7 @@ impl Default for EmbeddingsClientConfig {
 }
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum EmbeddingsError {
     RequestError(String),
     ParseError(String),
@@ -106,7 +107,7 @@ impl InferenceClient {
 
     pub async fn get_embeddings(
         &self,
-        texts: &Vec<String>,
+        texts: &[String],
     ) -> Result<TeiEmbedResponse, EmbeddingsError> {
         let request = TeiEmbedRequest {
             inputs: TeiInput::Multiple(texts.to_vec()),

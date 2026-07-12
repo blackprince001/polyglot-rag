@@ -35,6 +35,7 @@ impl ContentChunk {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_id(
         id: Uuid,
         file_id: Uuid,
