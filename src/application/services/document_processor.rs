@@ -4,7 +4,7 @@ use uuid::Uuid;
 use crate::application::ports::{
     DocumentExtractor, FileStorage,
     document_extractor::{ExtractedDocument, ExtractionOptions, PendingAsset},
-    file_storage::storage_key,
+    file_storage::{FileStorageError, storage_key},
 };
 use crate::application::services::EmbeddingService;
 use crate::domain::entities::{Asset, AssetType, ContentChunk, File};
@@ -308,8 +308,9 @@ impl DocumentProcessorService {
     }
 
     /// Stored files are read back through the `FileStorage` port (works for local
-    /// disk, S3, Cloudinary alike) and extracted from bytes. Rows without a stored
-    /// blob fall back to the path-based extractors.
+    /// disk, S3, Cloudinary alike) and extracted from bytes. Only rows without a
+    /// stored blob (`NotFound`) fall back to the path-based extractors; real
+    /// read failures propagate so they surface as such.
     async fn extract_text_from_file(
         &self,
         tenant_id: Uuid,
@@ -330,11 +331,15 @@ impl DocumentProcessorService {
                     .await
                     .map_err(|e| DocumentProcessingError::ExtractionError(e.to_string()))
             }
-            Err(_) => self
+            Err(FileStorageError::NotFound) => self
                 .document_extractor
                 .extract_text(file, extraction_options)
                 .await
                 .map_err(|e| DocumentProcessingError::ExtractionError(e.to_string())),
+            Err(e) => Err(DocumentProcessingError::ExtractionError(format!(
+                "read stored file: {}",
+                e
+            ))),
         }
     }
 

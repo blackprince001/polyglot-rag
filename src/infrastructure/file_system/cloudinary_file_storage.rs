@@ -176,11 +176,33 @@ impl FileStorage for CloudinaryFileStorage {
 
     async fn open_read(
         &self,
-        _tenant_id: Uuid,
-        _file_id: Uuid,
+        tenant_id: Uuid,
+        file_id: Uuid,
     ) -> Result<Box<dyn AsyncRead + Send + Unpin>, FileStorageError> {
-        // Cloudinary delivers via CDN — clients hit the presigned URL.
-        Err(FileStorageError::Unsupported)
+        // Server-side read for the extraction pipeline; client downloads
+        // still redirect to the CDN (`supports_server_stream` is false).
+        // Uses the long-timeout client since documents can be large.
+        let public_id = self.config.public_id(tenant_id, file_id);
+        let response = self
+            .upload_client
+            .get(self.cdn_url(&public_id))
+            .send()
+            .await
+            .map_err(|e| FileStorageError::Backend(format!("Cloudinary fetch: {}", e)))?;
+        if response.status().as_u16() == 404 {
+            return Err(FileStorageError::NotFound);
+        }
+        if !response.status().is_success() {
+            return Err(FileStorageError::Backend(format!(
+                "Cloudinary fetch: HTTP {}",
+                response.status()
+            )));
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| FileStorageError::Backend(format!("Cloudinary read body: {}", e)))?;
+        Ok(Box::new(std::io::Cursor::new(bytes)))
     }
 
     async fn delete(&self, tenant_id: Uuid, file_id: Uuid) -> Result<(), FileStorageError> {
