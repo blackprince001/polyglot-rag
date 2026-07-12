@@ -81,17 +81,16 @@ impl FileHandler {
         tenant: TenantContext,
         mut multipart: Multipart,
     ) -> Result<impl IntoResponse, StatusCode> {
-        if let Some(field) = multipart.next_field().await.map_err(|e| {
+        // Take the first field that carries a filename so extra form parts
+        // (metadata, flags) ahead of the file don't break the upload.
+        while let Some(field) = multipart.next_field().await.map_err(|e| {
             eprintln!("Error reading multipart field: {:?}", e);
             StatusCode::BAD_REQUEST
         })? {
-            let file_name = field
-                .file_name()
-                .ok_or_else(|| {
-                    eprintln!("No file name provided in field: {:?}", field.name());
-                    StatusCode::BAD_REQUEST
-                })?
-                .to_string();
+            let Some(file_name) = field.file_name().map(|name| name.to_string()) else {
+                eprintln!("Skipping non-file field: {:?}", field.name());
+                continue;
+            };
 
             let content_type = field.content_type().map(|ct| ct.to_string());
 
