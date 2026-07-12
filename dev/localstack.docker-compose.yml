@@ -47,7 +47,7 @@ services:
     # Local dev build (self-contained): `docker compose ... up --build`.
     # Pin or use a locally built image: POLYRAG_IMAGE=polyrag:local (from `make image`).
     image: ${POLYRAG_IMAGE:-ghcr.io/blackprince001/polyglot-rag:latest}
-    pull_policy: missing
+    pull_policy: always
     build:
       context: ../
       dockerfile: dockerfile.build
