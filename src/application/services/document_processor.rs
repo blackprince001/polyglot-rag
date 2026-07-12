@@ -21,6 +21,7 @@ pub struct ChunkingConfig {
 }
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum DocumentProcessingError {
     ExtractionError(String),
     EmbeddingError(String),
@@ -182,7 +183,7 @@ impl DocumentProcessorService {
         );
 
         let extracted_content = self
-            .extract_text_from_file(file, extraction_options)
+            .extract_text_from_file(tenant_id, file, extraction_options)
             .await?;
 
         let chunks = self.create_chunks(file.id(), &extracted_content.full_text)?;
@@ -306,15 +307,35 @@ impl DocumentProcessorService {
         Ok(assets.len() as i32)
     }
 
+    /// Stored files are read back through the `FileStorage` port (works for local
+    /// disk, S3, Cloudinary alike) and extracted from bytes. Rows without a stored
+    /// blob fall back to the path-based extractors.
     async fn extract_text_from_file(
         &self,
+        tenant_id: Uuid,
         file: &File,
         extraction_options: ExtractionOptions,
     ) -> Result<ExtractedDocument, DocumentProcessingError> {
-        self.document_extractor
-            .extract_text(file, extraction_options)
-            .await
-            .map_err(|e| DocumentProcessingError::ExtractionError(e.to_string()))
+        let file_type = file.file_type().unwrap_or("text/plain").to_string();
+        match self.file_storage.open_read(tenant_id, file.id()).await {
+            Ok(mut reader) => {
+                let mut bytes = Vec::new();
+                tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut bytes)
+                    .await
+                    .map_err(|e| {
+                        DocumentProcessingError::ExtractionError(format!("read stored file: {}", e))
+                    })?;
+                self.document_extractor
+                    .extract_text_from_bytes(&bytes, &file_type, extraction_options)
+                    .await
+                    .map_err(|e| DocumentProcessingError::ExtractionError(e.to_string()))
+            }
+            Err(_) => self
+                .document_extractor
+                .extract_text(file, extraction_options)
+                .await
+                .map_err(|e| DocumentProcessingError::ExtractionError(e.to_string())),
+        }
     }
 
     fn create_chunks(
@@ -338,14 +359,14 @@ impl DocumentProcessorService {
 
         while start < words.len() {
             // Check if we've reached the maximum number of chunks
-            if let Some(max_chunks) = self.chunking_config.max_chunks_per_document {
-                if chunks.len() >= max_chunks {
-                    eprintln!(
-                        "Warning: Reached maximum chunks limit ({}) for document. Stopping chunking.",
-                        max_chunks
-                    );
-                    break;
-                }
+            if let Some(max_chunks) = self.chunking_config.max_chunks_per_document
+                && chunks.len() >= max_chunks
+            {
+                eprintln!(
+                    "Warning: Reached maximum chunks limit ({}) for document. Stopping chunking.",
+                    max_chunks
+                );
+                break;
             }
 
             // Calculate end position for this chunk
