@@ -99,6 +99,7 @@ impl ProcessDocumentUseCase {
                 tenant_id,
                 &file,
                 request.extraction_options.unwrap_or_default(),
+                None,
             )
             .await;
 
