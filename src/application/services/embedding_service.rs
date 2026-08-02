@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::application::ports::embedding_provider::{BatchEmbeddingRequest, EmbeddingProvider};
+use crate::application::ports::progress_sink::ProgressSink;
 use crate::domain::entities::{ContentChunk, Embedding};
 
 #[derive(Debug)]
@@ -29,14 +30,18 @@ impl EmbeddingService {
         Self { embedding_provider }
     }
 
+    /// Embedding dominates a document's wall-clock, so each completed batch
+    /// reports through `progress` as a fraction of this phase.
     pub async fn generate_embeddings_for_chunks(
         &self,
         chunks: &[ContentChunk],
+        progress: Option<&dyn ProgressSink>,
     ) -> Result<Vec<Embedding>, EmbeddingServiceError> {
         let (model_name, model_version) = self.embedding_provider.model_info();
         let mut embeddings = Vec::with_capacity(chunks.len());
+        let total_batches = chunks.len().div_ceil(Self::BATCH_SIZE).max(1);
 
-        for batch in chunks.chunks(Self::BATCH_SIZE) {
+        for (batch_index, batch) in chunks.chunks(Self::BATCH_SIZE).enumerate() {
             let texts: Vec<String> = batch.iter().map(|c| c.chunk_text().to_string()).collect();
 
             let request = BatchEmbeddingRequest {
@@ -59,6 +64,19 @@ impl EmbeddingService {
                     None,
                     vector.clone(),
                 ));
+            }
+
+            if let Some(sink) = progress {
+                let done = batch_index + 1;
+                sink.report(
+                    done as f32 / total_batches as f32,
+                    Some(format!(
+                        "Embedded {} of {} chunks",
+                        embeddings.len(),
+                        chunks.len()
+                    )),
+                )
+                .await;
             }
         }
 

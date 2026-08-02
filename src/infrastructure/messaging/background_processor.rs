@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::application::ports::document_extractor::DocumentExtractor;
 use crate::application::ports::document_extractor::ExtractionOptions;
 use crate::application::ports::file_storage::FileStorage;
+use crate::application::ports::progress_sink::ProgressSink;
 use crate::application::services::{DocumentProcessorService, EmbeddingService};
 use crate::domain::entities::processing_job::{JobResult, JobType, ProcessingJob};
 use crate::domain::entities::{ContentChunk, File};
@@ -257,9 +258,14 @@ impl BackgroundProcessor {
             .map_err(|e| format!("Failed to find file: {}", e))?
             .ok_or_else(|| format!("File not found in database: {}", job.file_id()))?;
 
+        let sink = JobProgressSink {
+            jobs: self.job_repository.clone(),
+            tenant,
+            job_id: job.id(),
+        };
         let outcome = self
             .document_processor
-            .process_file(tenant, &file, ExtractionOptions::default())
+            .process_file(tenant, &file, ExtractionOptions::default(), Some(&sink))
             .await
             .map_err(|e| format!("Document processing failed: {}", e))?;
 
@@ -359,9 +365,14 @@ impl BackgroundProcessor {
         let _ = job.update_progress(0.6, Some("Generating embeddings...".to_string()));
         let _ = self.job_repository.update(job).await;
 
+        let sink = JobProgressSink {
+            jobs: self.job_repository.clone(),
+            tenant,
+            job_id: job.id(),
+        };
         let embeddings = self
             .embedding_service
-            .generate_embeddings_for_chunks(&chunks_with_ids)
+            .generate_embeddings_for_chunks(&chunks_with_ids, Some(&sink))
             .await
             .map_err(|e| format!("Embedding generation failed: {}", e))?;
 
@@ -428,6 +439,30 @@ impl BackgroundProcessor {
             embedding_repository: self.embedding_repository.clone(),
             text_splitter: self.text_splitter.clone(),
             worker_count: self.worker_count,
+        }
+    }
+}
+
+/// Lands processing progress on the job row, where the status stream reads it.
+struct JobProgressSink {
+    jobs: std::sync::Arc<dyn JobRepository>,
+    tenant: Uuid,
+    job_id: Uuid,
+}
+
+#[async_trait::async_trait]
+impl ProgressSink for JobProgressSink {
+    async fn report(&self, fraction: f32, message: Option<String>) {
+        match self.jobs.find_by_id(self.tenant, self.job_id).await {
+            Ok(Some(mut job)) => {
+                if job.update_progress(fraction, message).is_ok()
+                    && let Err(e) = self.jobs.update(&job).await
+                {
+                    warn!(job_id = %self.job_id, error = %e, "failed to persist progress");
+                }
+            }
+            Ok(None) => warn!(job_id = %self.job_id, "job vanished during progress update"),
+            Err(e) => warn!(job_id = %self.job_id, error = %e, "failed to load job for progress"),
         }
     }
 }

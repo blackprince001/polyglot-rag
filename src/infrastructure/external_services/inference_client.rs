@@ -55,10 +55,20 @@ impl Default for EmbeddingsClientConfig {
         let service_url = env::var("EMBEDDINGS_SERVICE_URL")
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
+        // A batch that outlives this timeout is aborted and retried from
+        // scratch, so on a slow embedding server (CPU, or CPU under
+        // emulation) too small a value turns every large document into
+        // timeout -> retry -> timeout until the job fails. 30s suits a
+        // native server; slower deployments raise it.
+        let timeout_secs = env::var("EMBEDDINGS_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+
         Self {
             service_url,
             max_retries: 3,
-            timeout_secs: 30,
+            timeout_secs,
             backoff_factor: 1.5,
         }
     }

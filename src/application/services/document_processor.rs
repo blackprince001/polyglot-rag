@@ -2,7 +2,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::application::ports::{
-    DocumentExtractor, FileStorage,
+    DocumentExtractor, FileStorage, ProgressSink,
     document_extractor::{ExtractedDocument, ExtractionOptions, PendingAsset},
     file_storage::{FileStorageError, storage_key},
 };
@@ -108,6 +108,22 @@ impl ChunkingConfig {
     }
 }
 
+/// Rescales a phase's own [0, 1] progress into that phase's slice of the
+/// whole job.
+struct PhaseSink<'a> {
+    inner: &'a dyn ProgressSink,
+    from: f32,
+    to: f32,
+}
+
+#[async_trait::async_trait]
+impl ProgressSink for PhaseSink<'_> {
+    async fn report(&self, fraction: f32, message: Option<String>) {
+        let scaled = self.from + (self.to - self.from) * fraction.clamp(0.0, 1.0);
+        self.inner.report(scaled, message).await;
+    }
+}
+
 impl DocumentProcessorService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -175,6 +191,7 @@ impl DocumentProcessorService {
         tenant_id: Uuid,
         file: &File,
         extraction_options: ExtractionOptions,
+        progress: Option<&dyn ProgressSink>,
     ) -> Result<ProcessedDocument, DocumentProcessingError> {
         println!(
             "Processing file: {} with chunking config: {:?}",
@@ -185,6 +202,9 @@ impl DocumentProcessorService {
         let extracted_content = self
             .extract_text_from_file(tenant_id, file, extraction_options)
             .await?;
+        if let Some(sink) = progress {
+            sink.report(0.25, Some("Text extracted".to_string())).await;
+        }
 
         let chunks = self.create_chunks(file.id(), &extracted_content.full_text)?;
 
@@ -199,6 +219,10 @@ impl DocumentProcessorService {
             chunks.len(),
             file.file_name()
         );
+        if let Some(sink) = progress {
+            sink.report(0.35, Some(format!("Embedding {} chunks", chunks.len())))
+                .await;
+        }
 
         match self.file_repository.find_by_id(tenant_id, file.id()).await {
             Ok(Some(_verified_file)) => {}
@@ -239,9 +263,19 @@ impl DocumentProcessorService {
             chunks_with_ids.push(chunk_with_id);
         }
 
+        // Embedding is the long phase; its per-batch fractions land in
+        // [0.35, 0.95] of the whole job.
+        let embed_sink = progress.map(|sink| PhaseSink {
+            inner: sink,
+            from: 0.35,
+            to: 0.95,
+        });
         let embeddings = self
             .embedding_service
-            .generate_embeddings_for_chunks(&chunks_with_ids)
+            .generate_embeddings_for_chunks(
+                &chunks_with_ids,
+                embed_sink.as_ref().map(|s| s as &dyn ProgressSink),
+            )
             .await
             .map_err(|e| DocumentProcessingError::EmbeddingError(e.to_string()))?;
 
