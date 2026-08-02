@@ -22,6 +22,9 @@ pub struct SimilaritySearchRequest {
     pub limit: Option<i32>,
     pub similarity_threshold: Option<f32>,
     pub file_id: Option<Uuid>,
+    /// Restricts the search to these files. Takes precedence over `file_id`.
+    /// Present but empty matches nothing rather than widening to the tenant.
+    pub file_ids: Option<Vec<Uuid>>,
 }
 
 #[derive(serde::Serialize, ToSchema)]
@@ -185,7 +188,9 @@ impl EmbeddingHandler {
                 &query_vector,
                 limit,
                 request.similarity_threshold,
-                request.file_id,
+                request
+                    .file_ids
+                    .or_else(|| request.file_id.map(|id| vec![id])),
             )
             .await
         {

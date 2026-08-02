@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use diesel::prelude::*;
-use diesel::sql_types::{BigInt, Double, Uuid as SqlUuid};
+use diesel::sql_types::{Array, BigInt, Double, Uuid as SqlUuid};
 use pgvector::Vector;
 use pgvector::sql_types::Vector as SqlVector;
 use uuid::Uuid;
@@ -179,14 +179,21 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
             .collect())
     }
 
-    async fn similarity_search_by_file(
+    async fn similarity_search_by_files(
         &self,
         tenant: Uuid,
         query_vector: &Vector,
-        file_id_param: Uuid,
+        file_id_params: &[Uuid],
         limit: i32,
         similarity_threshold: Option<f32>,
     ) -> Result<Vec<SimilaritySearchResult>, EmbeddingRepositoryError> {
+        // An empty set is a caller asking for nothing, not for everything.
+        // `= ANY('{}')` would already match no rows; returning early skips the
+        // round trip and keeps the intent explicit.
+        if file_id_params.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let mut conn = get_connection_from_pool(&self.pool)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 
@@ -197,7 +204,7 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
                    FROM embeddings e \
                    JOIN content_chunks c ON c.id = e.content_chunk_id \
                    WHERE e.tenant_id = $3 \
-                     AND c.file_id = $5 \
+                     AND c.file_id = ANY($5) \
                      AND e.embedding IS NOT NULL \
                      AND (1 - (e.embedding <=> $1)) >= $2 \
                    ORDER BY e.embedding <=> $1 \
@@ -208,7 +215,7 @@ impl EmbeddingRepository for PostgresEmbeddingRepository {
             .bind::<Double, _>(threshold)
             .bind::<SqlUuid, _>(tenant)
             .bind::<BigInt, _>(limit as i64)
-            .bind::<SqlUuid, _>(file_id_param)
+            .bind::<Array<SqlUuid>, _>(file_id_params.to_vec())
             .load::<SimRow>(&mut conn)
             .map_err(|e| EmbeddingRepositoryError::DatabaseError(e.to_string()))?;
 

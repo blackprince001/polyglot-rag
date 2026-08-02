@@ -122,6 +122,35 @@ endpoints. Single-file results stay a single object (not a one-element list).
 `assets` carries any binary assets extracted from the document (see
 [Multi-format ingest](#multi-format-ingest)); it is `[]` when there are none.
 
+## **Scoping a search**
+
+A search is always bounded by the caller's tenant. Within that, it can be
+narrowed to a set of files:
+
+| Parameter | Endpoint | Meaning |
+| --- | --- | --- |
+| *(none)* | both | Search every file in the tenant |
+| `file_id` | `GET /search`, `POST /similarity-search` | Restrict to one file |
+| `file_ids` | `GET /search`, `POST /similarity-search` | Restrict to a set of files |
+
+`file_ids` takes precedence when both are supplied. On `GET /search` it is a
+comma-separated list, because a query string carries no list type:
+
+```
+GET /search?query=attention&file_ids=<uuid-a>,<uuid-b>,<uuid-c>
+```
+
+On `POST /similarity-search` it is a JSON array alongside `query_vector`.
+
+**An empty `file_ids` matches nothing.** It does not fall back to searching the
+whole tenant. This matters for callers that group files themselves — a client
+that resolves a collection to zero files gets no results rather than every
+document belonging to every one of its own users. An id that fails to parse
+fails the request rather than being dropped from the filter.
+
+Restricting to a set costs one query. Issuing one request per file and merging
+client-side returns the same passages but re-embeds the query each time.
+
 ## **Multi-format ingest**
 
 Uploaded documents are dispatched to a format-specific extractor by content

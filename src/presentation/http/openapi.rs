@@ -645,11 +645,14 @@ async fn cancel_job() {}
         ("limit" = Option<i32>, Query, description = "Maximum chunks to return (default 10)"),
         ("similarity_threshold" = Option<f32>, Query, description = "Minimum similarity score"),
         ("file_id" = Option<uuid::Uuid>, Query, description = "Restrict search to a single file"),
+        ("file_ids" = Option<String>, Query, description = "Restrict search to a comma-separated \
+            set of files. Takes precedence over `file_id`. Present but empty matches nothing \
+            rather than widening to the whole tenant."),
     ),
     security(("ApiKey" = []), ("ApiKeyBearer" = [])),
     responses(
         (status = 200, description = "Search results", body = ApiResponse<SearchResponseDto>),
-        (status = 400, description = "Empty query"),
+        (status = 400, description = "Empty query, or an unparseable file id"),
     )
 )]
 async fn search_content() {}

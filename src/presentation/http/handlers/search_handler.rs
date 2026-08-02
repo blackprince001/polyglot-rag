@@ -43,7 +43,9 @@ impl SearchHandler {
             query: search_params.query,
             limit: search_params.limit,
             similarity_threshold: search_params.similarity_threshold,
-            file_id_filter: search_params.file_id,
+            file_ids_filter: search_params
+                .file_ids
+                .or_else(|| search_params.file_id.map(|id| vec![id])),
         };
 
         match handler

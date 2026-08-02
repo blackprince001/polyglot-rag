@@ -63,7 +63,7 @@ impl SearchService {
         query: &str,
         limit: i32,
         similarity_threshold: Option<f32>,
-        file_id_filter: Option<Uuid>,
+        file_ids_filter: Option<Vec<Uuid>>,
     ) -> Result<Vec<DocumentMatch>, SearchServiceError> {
         let embedding_request = EmbeddingRequest {
             text: query.to_string(),
@@ -79,7 +79,7 @@ impl SearchService {
             &embedding_response.embedding,
             limit,
             similarity_threshold,
-            file_id_filter,
+            file_ids_filter,
         )
         .await
     }
@@ -90,14 +90,14 @@ impl SearchService {
         query_vector: &Vector,
         limit: i32,
         similarity_threshold: Option<f32>,
-        file_id_filter: Option<Uuid>,
+        file_ids_filter: Option<Vec<Uuid>>,
     ) -> Result<Vec<DocumentMatch>, SearchServiceError> {
-        let similarity_hits: Vec<SimilarityHit> = if let Some(file_id) = file_id_filter {
+        let similarity_hits: Vec<SimilarityHit> = if let Some(file_ids) = file_ids_filter {
             self.embedding_repository
-                .similarity_search_by_file(
+                .similarity_search_by_files(
                     tenant_id,
                     query_vector,
-                    file_id,
+                    &file_ids,
                     limit,
                     similarity_threshold,
                 )

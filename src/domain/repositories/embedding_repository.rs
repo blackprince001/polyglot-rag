@@ -58,11 +58,13 @@ pub trait EmbeddingRepository: Send + Sync {
         limit: i32,
         similarity_threshold: Option<f32>,
     ) -> Result<Vec<SimilaritySearchResult>, EmbeddingRepositoryError>;
-    async fn similarity_search_by_file(
+    /// Restricts the search to a closed set of files. An empty set matches
+    /// nothing; it never widens to the whole tenant.
+    async fn similarity_search_by_files(
         &self,
         tenant_id: Uuid,
         query_vector: &Vector,
-        file_id: Uuid,
+        file_ids: &[Uuid],
         limit: i32,
         similarity_threshold: Option<f32>,
     ) -> Result<Vec<SimilaritySearchResult>, EmbeddingRepositoryError>;
