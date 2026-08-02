@@ -265,15 +265,13 @@ fn encode_png(
     Some(out)
 }
 
-#[async_trait]
-impl DocumentExtractor for PdfExtractor {
-    async fn extract_text(
+impl PdfExtractor {
+    async fn extract_from_path(
         &self,
-        file: &File,
-        options: ExtractionOptions,
+        path: &str,
+        options: &ExtractionOptions,
     ) -> Result<ExtractedDocument, DocumentExtractionError> {
-        // let path = std::path::Path::new(&file.file_path());
-        let mut doc = Document::load_filtered(file.file_path(), Self::filter_func)
+        let mut doc = Document::load_filtered(path, Self::filter_func)
             .map_err(|e| DocumentExtractionError::CorruptedFile(e.to_string()))?;
 
         if doc.is_encrypted() {
@@ -284,11 +282,11 @@ impl DocumentExtractor for PdfExtractor {
             })?;
         }
 
-        let (text, page_texts, _errors) = self.extract_pdf_text(&doc, &options).await?;
+        let (text, page_texts, _errors) = self.extract_pdf_text(&doc, options).await?;
 
         // Embedded images are read from an unfiltered reload: `filter_func`
         // strips the Width/Height/Filter/ColorSpace keys we need to decode them.
-        let mut images_by_page = Self::extract_images_by_page(file.file_path());
+        let mut images_by_page = Self::extract_images_by_page(path);
 
         let pages: Vec<PageContent> = page_texts
             .into_iter()
@@ -309,14 +307,38 @@ impl DocumentExtractor for PdfExtractor {
             pending_assets: leftover_assets,
         })
     }
+}
 
+#[async_trait]
+impl DocumentExtractor for PdfExtractor {
+    async fn extract_text(
+        &self,
+        file: &File,
+        options: ExtractionOptions,
+    ) -> Result<ExtractedDocument, DocumentExtractionError> {
+        self.extract_from_path(file.file_path(), &options).await
+    }
+
+    /// Stored files come back through the `FileStorage` port as bytes, and this
+    /// is the entry point the processing pipeline actually uses. The bytes are
+    /// spooled to a temp file so both entry points share the implementation
+    /// above; the file is removed when `temp` drops.
     async fn extract_text_from_bytes(
         &self,
-        _data: &[u8],
+        data: &[u8],
         _file_type: &str,
-        _options: ExtractionOptions,
+        options: ExtractionOptions,
     ) -> Result<ExtractedDocument, DocumentExtractionError> {
-        unimplemented!()
+        let temp = tempfile::NamedTempFile::new().map_err(|e| {
+            DocumentExtractionError::ExtractionFailed(format!("create temp file: {}", e))
+        })?;
+        std::fs::write(temp.path(), data).map_err(|e| {
+            DocumentExtractionError::ExtractionFailed(format!("write temp file: {}", e))
+        })?;
+        let path = temp.path().to_str().ok_or_else(|| {
+            DocumentExtractionError::ExtractionFailed("temp path is not valid UTF-8".to_string())
+        })?;
+        self.extract_from_path(path, &options).await
     }
 
     fn can_extract(&self, file_type: &str) -> bool {
@@ -359,5 +381,101 @@ mod tests {
         // Claims 4x4 RGB (48 bytes) but only provides 10.
         let samples = vec![0u8; 10];
         assert!(encode_png(&samples, 4, 4, Some("DeviceRGB"), Some(8)).is_none());
+    }
+
+    /// Build a one-page PDF through lopdf's own writer, so the test needs no
+    /// committed fixture and exercises a conformant file.
+    fn pdf_bytes(text: &str) -> Vec<u8> {
+        use lopdf::content::{Content, Operation};
+        use lopdf::{Stream, dictionary};
+
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+        });
+        let resources_id = doc.add_object(dictionary! {
+            "Font" => dictionary! { "F1" => font_id },
+        });
+        let content = Content {
+            operations: vec![
+                Operation::new("BT", vec![]),
+                Operation::new("Tf", vec!["F1".into(), 24.into()]),
+                Operation::new("Td", vec![100.into(), 600.into()]),
+                Operation::new("Tj", vec![Object::string_literal(text)]),
+                Operation::new("ET", vec![]),
+            ],
+        };
+        let content_id = doc.add_object(Stream::new(
+            dictionary! {},
+            content.encode().expect("encode content"),
+        ));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Contents" => content_id,
+            "Resources" => resources_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).expect("serialize pdf");
+        bytes
+    }
+
+    // The regression this file earned: the processing pipeline reads stored
+    // files back as bytes, and this entry point was unimplemented!() — every
+    // PDF upload panicked its worker.
+    #[tokio::test]
+    async fn extracts_text_from_pdf_bytes() {
+        let bytes = pdf_bytes("Hello from the bytes path");
+        let doc = PdfExtractor::new()
+            .extract_text_from_bytes(&bytes, "application/pdf", ExtractionOptions::default())
+            .await
+            .expect("extract from bytes");
+        assert!(doc.full_text.contains("Hello from the bytes path"));
+        assert_eq!(doc.pages.len(), 1);
+        assert_eq!(doc.pages[0].page_number, 1);
+    }
+
+    #[tokio::test]
+    async fn both_entry_points_agree() {
+        let bytes = pdf_bytes("Same document either way");
+        let temp = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(temp.path(), &bytes).expect("write temp");
+
+        let extractor = PdfExtractor::new();
+        let from_bytes = extractor
+            .extract_text_from_bytes(&bytes, "application/pdf", ExtractionOptions::default())
+            .await
+            .expect("bytes");
+        let file = File::new(
+            temp.path().to_str().expect("utf-8 path").to_string(),
+            "same.pdf".to_string(),
+            None,
+            Some("application/pdf".to_string()),
+            None,
+            None,
+        );
+        let from_path = extractor
+            .extract_text(&file, ExtractionOptions::default())
+            .await
+            .expect("path");
+        assert_eq!(from_bytes.full_text, from_path.full_text);
     }
 }
