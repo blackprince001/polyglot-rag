@@ -94,8 +94,16 @@ impl BackgroundProcessor {
         loop {
             match self.job_receiver.recv().await {
                 Some(v) => {
-                    info!(worker_id, job_id = %v.id(), "processing job");
-                    self.process_job(v).await;
+                    let job_id = v.id();
+                    let tenant = v.tenant_id();
+                    let file_id = v.file_id();
+                    info!(worker_id, %job_id, "processing job");
+
+                    let run = std::panic::AssertUnwindSafe(self.process_job(v));
+                    if futures::FutureExt::catch_unwind(run).await.is_err() {
+                        error!(worker_id, %job_id, "job panicked");
+                        self.fail_job_after_panic(job_id, tenant, file_id).await;
+                    }
                 }
                 None => {
                     info!(worker_id, "channel closed, worker stopping");
@@ -105,6 +113,24 @@ impl BackgroundProcessor {
         }
 
         info!(worker_id, "worker stopped");
+    }
+
+    /// Land a panicked job on the same terminal state an error would have:
+    /// job failed, file failed, both persisted, so status streams terminate.
+    async fn fail_job_after_panic(&self, job_id: Uuid, tenant: Uuid, file_id: Uuid) {
+        let cause = "processing panicked".to_string();
+        match self.job_repository.find_by_id(tenant, job_id).await {
+            Ok(Some(mut job)) => {
+                if let Err(e) = job.fail_processing(cause.clone()) {
+                    error!(%job_id, error = %e, "failed to mark panicked job failed");
+                } else if let Err(e) = self.job_repository.update(&job).await {
+                    error!(%job_id, error = %e, "failed to persist panicked job state");
+                }
+            }
+            Ok(None) => warn!(%job_id, "panicked job not found for failure update"),
+            Err(e) => error!(%job_id, error = %e, "failed to load panicked job"),
+        }
+        self.mark_file_failed(tenant, file_id, cause).await;
     }
 
     async fn process_job(&self, mut job: ProcessingJob) {
