@@ -26,7 +26,9 @@ pub struct SearchContentRequest {
     pub query: String,
     pub limit: Option<i32>,
     pub similarity_threshold: Option<f32>,
-    pub file_id_filter: Option<uuid::Uuid>,
+    /// Restricts the search to these files. `None` searches the whole tenant;
+    /// `Some(vec![])` matches nothing.
+    pub file_ids_filter: Option<Vec<uuid::Uuid>>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,7 +95,7 @@ impl SearchContentUseCase {
                 &request.query,
                 limit,
                 request.similarity_threshold,
-                request.file_id_filter,
+                request.file_ids_filter.clone(),
             )
             .await
             .map_err(|e| SearchContentError::RepositoryError(e.to_string()))?;
