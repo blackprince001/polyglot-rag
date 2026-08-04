@@ -104,14 +104,12 @@ impl PdfExtractor {
                     // Sanitize the text to remove null bytes and other invalid UTF-8 sequences
                     let sanitized_text = Self::sanitize_pdf_text(&raw_text);
 
-                    // If sanitization resulted in empty text, provide a fallback message
-                    let final_text = if sanitized_text.trim().is_empty() {
-                        format!("[Page {}: No extractable text found - may contain images or corrupted text]", page_num)
-                    } else {
-                        sanitized_text
-                    };
-
-                    let lines: Vec<String> = final_text
+                    // A page that yields nothing contributes nothing. Substituting a
+                    // note here used to make the emptiness invisible: the note was
+                    // chunked, embedded and served back as a search result, and it
+                    // inflated the extracted length a caller uses to tell a scanned
+                    // page from a real one.
+                    let lines: Vec<String> = sanitized_text
                         .split('\n')
                         .map(|s| s.trim_end().to_string())
                         .filter(|s| !s.is_empty())
@@ -136,15 +134,10 @@ impl PdfExtractor {
             }
         }
 
-        let combined_text = all_text.join("\n");
-
-        let final_text = if combined_text.trim().is_empty() {
-            "No text could be extracted from this PDF. This might be an image-based PDF (scanned document) that requires OCR processing.".to_string()
-        } else {
-            combined_text
-        };
-
-        Ok((final_text, page_texts, errors))
+        // An image-only PDF extracts to nothing, and that is the honest answer.
+        // The caller decides what to do about it; manufacturing prose here made
+        // an unreadable scan indistinguishable from a readable document.
+        Ok((all_text.join("\n"), page_texts, errors))
     }
 
     /// Load the PDF unfiltered and pull embedded image XObjects, grouped by the
