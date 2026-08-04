@@ -45,6 +45,10 @@ pub struct ProcessedDocument {
     pub chunks_created: i32,
     pub embeddings_created: i32,
     pub assets_created: i32,
+    /// Characters of text the extractor got out of the source. Zero means the
+    /// file parsed but held nothing readable — a scan, most often — which a
+    /// caller cannot tell from a successful ingest by status alone.
+    pub text_length: usize,
 }
 
 pub struct DocumentProcessorService {
@@ -206,6 +210,7 @@ impl DocumentProcessorService {
             sink.report(0.25, Some("Text extracted".to_string())).await;
         }
 
+        let text_length = extracted_content.full_text.chars().count();
         let chunks = self.create_chunks(file.id(), &extracted_content.full_text)?;
 
         // Persist any embedded assets (images, etc). Consumes `extracted_content`.
@@ -288,6 +293,7 @@ impl DocumentProcessorService {
             chunks_created: chunks.len() as i32,
             embeddings_created: embeddings.len() as i32,
             assets_created,
+            text_length,
         })
     }
 

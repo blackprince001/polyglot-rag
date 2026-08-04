@@ -1,4 +1,5 @@
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use std::{env, net::SocketAddr, sync::Arc};
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
@@ -127,6 +128,11 @@ impl HttpServer {
             .merge(management) // TENANT_MANAGEMENT_KEY
             .merge(protected)
             .layer(Self::cors_layer())
+            // Axum's own 2MB default applies to the Multipart extractor and wins
+            // over the layer below, so uploads bigger than that were rejected with
+            // a bodyless 400 and the 250MB cap never applied. Disabling the default
+            // hands the limit to RequestBodyLimitLayer, which is where it belongs.
+            .layer(DefaultBodyLimit::disable())
             .layer(RequestBodyLimitLayer::new(250 * 1024 * 1024)) // 250MB cap
             .layer(
                 TraceLayer::new_for_http()
