@@ -274,7 +274,7 @@ impl BackgroundProcessor {
             embeddings_created: outcome.embeddings_created,
             assets_created: outcome.assets_created,
             processing_time_ms: 0,
-            extracted_text_length: 0,
+            extracted_text_length: outcome.text_length,
         })
     }
 
