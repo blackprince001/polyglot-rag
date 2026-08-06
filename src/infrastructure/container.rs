@@ -98,7 +98,10 @@ impl AppContainer {
         );
 
         // Create application services
-        let embedding_service = Arc::new(EmbeddingService::new(embedding_provider.clone()));
+        let embedding_service = Arc::new(EmbeddingService::new(
+            embedding_provider.clone(),
+            env_u64("EMBEDDING_BATCH_SIZE", 10) as usize,
+        ));
         let search_service = Arc::new(SearchService::new(
             embedding_provider.clone(),
             embedding_repository.clone(),

@@ -21,13 +21,22 @@ impl std::error::Error for EmbeddingServiceError {}
 
 pub struct EmbeddingService {
     embedding_provider: Arc<dyn EmbeddingProvider>,
+    // Chunks grouped into one embedding request, so this bounds request
+    // tokens too: 10 chunks at ~500-600 tokens each already clears a real
+    // embedding server's max-batch-tokens on a real document (observed:
+    // 5086, 5931, 5841 tokens in one request, rejected outright and failing
+    // the whole ingest job). Configurable per deployment since the safe
+    // number depends on both chunk size and the embedding server's own
+    // memory budget, not something this service can assume.
+    batch_size: usize,
 }
 
 impl EmbeddingService {
-    const BATCH_SIZE: usize = 10;
-
-    pub fn new(embedding_provider: Arc<dyn EmbeddingProvider>) -> Self {
-        Self { embedding_provider }
+    pub fn new(embedding_provider: Arc<dyn EmbeddingProvider>, batch_size: usize) -> Self {
+        Self {
+            embedding_provider,
+            batch_size: batch_size.max(1),
+        }
     }
 
     /// Embedding dominates a document's wall-clock, so each completed batch
@@ -39,9 +48,9 @@ impl EmbeddingService {
     ) -> Result<Vec<Embedding>, EmbeddingServiceError> {
         let (model_name, model_version) = self.embedding_provider.model_info();
         let mut embeddings = Vec::with_capacity(chunks.len());
-        let total_batches = chunks.len().div_ceil(Self::BATCH_SIZE).max(1);
+        let total_batches = chunks.len().div_ceil(self.batch_size).max(1);
 
-        for (batch_index, batch) in chunks.chunks(Self::BATCH_SIZE).enumerate() {
+        for (batch_index, batch) in chunks.chunks(self.batch_size).enumerate() {
             let texts: Vec<String> = batch.iter().map(|c| c.chunk_text().to_string()).collect();
 
             let request = BatchEmbeddingRequest {
